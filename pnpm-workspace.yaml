@@ -1,0 +1,5 @@
+allowBuilds:
+  esbuild: true
+verifyDepsBeforeRun: false
+overrides:
+  esbuild: 0.28.1

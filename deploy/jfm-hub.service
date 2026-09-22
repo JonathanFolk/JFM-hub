@@ -1,0 +1,23 @@
+[Unit]
+Description=JFM private read-only Hub
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jfm
+Group=jfm
+WorkingDirectory=/opt/jfm-hub
+EnvironmentFile=/etc/jfm-hub.env
+ExecStart=/usr/bin/node --import tsx server/index.ts
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/jfm-hub
+
+[Install]
+WantedBy=multi-user.target

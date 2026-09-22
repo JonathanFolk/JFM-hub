@@ -1,0 +1,21 @@
+{
+  "name": "jfm-hub", "version": "0.1.0", "private": true, "type": "module",
+  "scripts": {
+    "dev": "tsx watch server/index.ts",
+    "build": "tsc --noEmit && vite build",
+    "start": "tsx server/index.ts",
+    "import": "tsx scripts/import.ts",
+    "backup": "tsx scripts/backup.ts",
+    "test": "tsx --test tests/*.test.ts",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "19.1.1", "react-dom": "19.1.1", "express": "5.1.0",
+    "ical.js": "2.2.1", "luxon": "3.7.2", "jose": "6.1.0", "csv-parse": "7.0.2", "tsx": "4.20.5"
+  },
+  "devDependencies": {
+    "typescript": "5.9.2", "vite": "7.3.5", "@vitejs/plugin-react": "5.0.3",
+    "@types/node": "24.5.2", "@types/express": "5.0.3", "@types/react": "19.1.13",
+    "@types/react-dom": "19.1.9", "@types/luxon": "3.7.1"
+  }
+}

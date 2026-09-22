@@ -1,0 +1,6 @@
+# Replace with the same approved hostname as APP_ORIGIN.
+hub.jonathanfolk.ca {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:4310
+    # No access-log directive: callback URLs can contain OAuth codes.
+}
