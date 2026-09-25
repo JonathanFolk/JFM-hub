@@ -8,6 +8,7 @@ export const config={
  encryptionKey:process.env.TOKEN_ENCRYPTION_KEY||'',calendarId:process.env.CALENDAR_ID||'primary'
 };
 export function validateConfig(){
- if(config.mode!=='local'&&(!config.origin.startsWith('https://')||!config.clientId||!config.clientSecret||Buffer.from(config.encryptionKey,'base64').length!==32))throw new Error('Production needs HTTPS origin, Google credentials and a 32-byte encryption key. See SETUP.md.');
+ if(config.mode!=='local'&&(!config.origin.startsWith('https://')||Buffer.from(config.encryptionKey,'base64').length!==32))throw new Error('Production needs an HTTPS origin and a 32-byte encryption key. See SETUP.md.');
+ if(config.mode!=='local'&&Boolean(config.clientId)!==Boolean(config.clientSecret))throw new Error('Configure both Google OAuth credentials together. See SETUP.md.');
  if(config.mode==='local'&&!['127.0.0.1','localhost'].includes(new URL(config.origin).hostname))throw new Error('Local mode must use a loopback origin');
 }
