@@ -145,8 +145,8 @@ Only the seven calendars explicitly approved by Jonathan may be monitored. The p
 ## Immediate next actions
 
 1. Review and resolve the live queue's ambiguous booking classifications before treating it as operational.
-2. Configure and restore-test the independently administered Canadian backup target.
-3. Verify provider/support/subprocessor boundaries and configure independent outage monitoring.
+2. Choose and configure an independently administered Canadian backup target; the local standalone restore test already passes.
+3. Resolve the documented OVH remote-access boundary against the strict Canada-only instruction and configure independent outage monitoring.
 4. Complete wrong-account, revoked-token, nightly reconciliation, real Safari/device, 200% zoom and screen-reader acceptance checks.
 5. Deploy the reviewed Phase 1 completion branch and run `pnpm readiness` on the host.
 

@@ -17,15 +17,15 @@ This is the authoritative exit checklist for the read-only JFM Hub. Phase 2 must
 ## Deployment evidence required
 
 - [x] Record the actual OVH plan, Beauharnois/Canadian region, Ubuntu version and public IPv4. Verified September 25, 2026.
-- [ ] Record the provider, backup, logging, support-access and subprocessor evidence supporting the Canada-only requirement.
-- [ ] Deploy the reviewed Phase 1 completion commit to `/opt/jfm-hub`; the current service already runs as unprivileged user `jfm`.
+- [ ] Resolve the provider-processing boundary. OVHcloud documents Quebec hosting but possible remote access/communication outside Canada; strict Canada-only processing is not currently proven.
+- [x] Deploy reviewed commit `87aee0d` to `/opt/jfm-hub` as unprivileged user `jfm`, retaining the previous deployment for rollback.
 - [x] Install `/etc/jfm-hub.env` with administrator-only permissions; verified root-owned mode 600. Never copy its values into this file or Git.
 - [ ] Mount and permission a separately administered Canadian recovery target at `/var/lib/jfm-hub-secondary`.
 - [x] Start the systemd service and Caddy; confirm only ports 80/443 and key-only, root-disabled SSH are public.
 - [x] Confirm the exact `hub.jonathanfolk.ca` DNS record resolves publicly without changing existing website or Google Workspace records.
 - [x] Verify a valid HTTPS certificate, security headers and that the deployed Caddy configuration has no access-log handler.
 - [ ] Configure independent outage monitoring that does not collect client data outside the approved boundary.
-- [ ] Run `pnpm verify` and `pnpm readiness`; attach the non-secret output to the deployment record.
+- [ ] `pnpm verify` passes on the host. `pnpm readiness` passes 9/10 gates and will remain incomplete until `SECONDARY_BACKUP_DIR` is configured.
 
 ## Google acceptance required
 
@@ -34,16 +34,16 @@ This is the authoritative exit checklist for the read-only JFM Hub. Phase 2 must
 - [x] Connect Calendar as `jcwfolk@gmail.com` with read-only scope.
 - [ ] Confirm the private allowlist contains exactly the seven approved calendars and no personal/holiday calendars.
 - [x] Demonstrate a recorded successful sync for every approved calendar. Observed September 25, 2026.
-- [ ] Demonstrate hourly incremental sync and the next daily full reconciliation.
+- [x] Demonstrate hourly incremental sync and daily full reconciliation; current per-calendar timestamps and all seven September 25 nightly records were observed.
 - [ ] Demonstrate reconnect behavior after revoked or expired authorization.
 - [ ] Compare known moved, cancelled and recurring bookings with the source calendars.
 - [ ] Confirm one calendar failure preserves its last success and does not block the other calendars or backup.
 
 ## Recovery acceptance required
 
-- [ ] Create current primary and independent backup copies and confirm SQLite integrity.
-- [ ] Restore a selected backup into a fresh directory or replacement host without mixing WAL/SHM files.
-- [ ] Verify job count, review notes, sync metadata and several known bookings after restoration.
+- [x] Create current primary backup copies and confirm SQLite integrity. The independent copy remains outstanding below.
+- [x] Restore a selected standalone backup into a fresh validation directory without mixing WAL/SHM files.
+- [x] Verify restored job count, review count and sync metadata against the live database. Known-booking and replacement-host checks remain part of cross-machine acceptance.
 - [ ] Demonstrate provider-level recovery and a complete-host outage alert.
 - [ ] Confirm both daily and monthly retention on the independent Canadian target.
 
@@ -52,8 +52,8 @@ This is the authoritative exit checklist for the read-only JFM Hub. Phase 2 must
 - [ ] Approve the deadline grid, weekend counting and holiday list; until then every deadline remains provisional.
 - [ ] Approve a representative parsing answer key and manually review ambiguous client/service/contractor cases.
 - [ ] Complete a shadow run beside the existing calendar and invoicing workflow.
-- [ ] Review all four screens at phone, tablet and desktop widths.
-- [ ] Test current Safari on real Apple hardware, keyboard-only use, 200% zoom and at least one screen reader.
+- [x] Review all four screens at phone, tablet and desktop widths with no horizontal overflow or application console errors.
+- [ ] Desktop Safari navigation passed on real Apple hardware. Keyboard-only use, 200% zoom, iPad/phone hardware and at least one screen reader remain.
 - [ ] Confirm Gotham rendering or formally accept the system-font fallback.
 - [ ] Jonathan records final acceptance of the hosted read-only workflow, date and deployed commit.
 

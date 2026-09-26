@@ -15,7 +15,7 @@
 - Real Google OAuth sign-in, wrong-account denial, refresh-token expiry/reconnect and actual background calendar sync. Plugin access and app OAuth are separate.
 - Hosted Canadian residency/processing terms, provider account, hostname/TLS, off-machine backups, independent outage alert and provider restore.
 - Human-approved answer key, deadline grid and holiday policy. No 95% parsing-accuracy claim is made; business uncertainty remains visible.
-- Full assistive-technology audit, actual iPad/Safari and phone hardware checks, browser 200% zoom and longer shadow operation.
+- Full assistive-technology audit, actual iPad and phone hardware checks, browser 200% zoom and longer shadow operation. Desktop Safari on the deployment Mac has been exercised successfully.
 - Thirty daily and twelve monthly integrity-checked copies are implemented. The separately administered Canadian target is supported but must still be mounted, configured and restore-tested in production.
 
 Phase 1 is a tested hosted shadow deployment, not an accepted operational rollout. Phase 2 has not started. App AI usage is zero.
@@ -27,6 +27,8 @@ Phase 1 is a tested hosted shadow deployment, not an accepted operational rollou
 - An unauthenticated request to `/api/dashboard` returns HTTP 401.
 - The signed-in Connections screen reports all seven approved calendars current, with successful refresh timestamps, and shows a successful local backup.
 - The service runs as unprivileged user `jfm`; `/etc/jfm-hub.env` is root-owned mode 600; the app port listens only on loopback; UFW exposes only SSH/HTTP/HTTPS; SSH is key-only with root login disabled; and the active Caddy configuration contains no access-log handler.
+- All seven `last-nightly` records show the September 25 reconciliation completed. A standalone backup copied into a fresh validation directory passed integrity and preserved 257 jobs, 123 review records and eight sync states, matching the live database at that moment.
+- Current OVHcloud policy says Canadian customer information is hosted in Quebec, but remote access or occasional communication may occur outside Quebec/Canada. Strict Canada-only processing is therefore not proven. The included VPS backup is replicated within the same datacentre and is not an independent regional recovery copy.
 - This does not prove wrong-account rejection, unattended refresh longevity, access-log settings, off-machine recovery, provider processing boundaries or accessibility acceptance.
 
 ## Seven-calendar update
@@ -34,4 +36,4 @@ Phase 1 is a tested hosted shadow deployment, not an accepted operational rollou
 Twenty-two tests now pass, including explicit calendar selection validation, independent per-calendar IDs/cursors, idempotent multi-calendar resync, failure isolation, titleless contractor cancellations, unknown For J naming review, rolling full-sync bounds, strict deployment configuration and standalone daily/monthly backups. Production OAuth and reads from all seven calendars are operating. A longer unattended run, revoked-token recovery and the next observed nightly reconciliation are still required.
 
 ### September 20 — studio UI refresh
-TypeScript check and Vite production build pass. CSS/JSX changes only: spacing, Gotham local font faces, responsive panels and natural numeric display. No business rules, source data or external writes changed. Native-browser visual inspection attempted and blocked by administrator-policy verification; no workaround used. Font rendering and screenshot review remain pending.
+TypeScript check and Vite production build pass. CSS/JSX changes only: spacing, Gotham local font faces, responsive panels and natural numeric display. No business rules, source data or external writes changed. The earlier policy-blocked inspection was superseded on September 25 by successful Chrome desktop/tablet/phone-width checks and a native desktop Safari navigation check. Jonathan's aesthetic acceptance remains pending.
