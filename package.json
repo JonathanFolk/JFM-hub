@@ -5,6 +5,7 @@
     "build": "tsc --noEmit && vite build",
     "start": "tsx server/index.ts",
     "import": "tsx scripts/import.ts",
+    "import:reference": "tsx scripts/import-reference.ts",
     "backup": "tsx scripts/backup.ts",
     "test": "tsx --test tests/*.test.ts",
     "check": "tsc --noEmit",

@@ -26,5 +26,5 @@ export function ensureCalendarSources(store:Store,sources=calendarSources()){
 export function currentJobs(store:Store,sources=calendarSources()){
  const active=store.getSetting('active-calendar')||'calendar-export';
  const visible=new Set(sources.filter(s=>s.key!=='primary').map(sourceId));visible.add(active);
- return store.jobs().filter(j=>visible.has(j.source));
+ const deleted=store.deletedJobIds();return store.jobs().filter(j=>visible.has(j.source)&&!deleted.has(j.id));
 }

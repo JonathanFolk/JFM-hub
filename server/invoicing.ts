@@ -14,12 +14,12 @@ export function invoiceTotals(invoice:Pick<InvoiceDraft,'lines'|'taxTreatment'|'
 
 export function normalizeInvoiceInput(value:unknown):InvoiceDraftInput{
  const raw=(value&&typeof value==='object'?value:{}) as Record<string,unknown>;
- const lines=Array.isArray(raw.lines)?raw.lines.slice(0,25).map((item,index)=>{
+ const lines:InvoiceLine[]=Array.isArray(raw.lines)?raw.lines.slice(0,25).map((item,index):InvoiceLine=>{
   const line=(item&&typeof item==='object'?item:{}) as Record<string,unknown>;
-  return {id:text(line.id,80)||`line-${index+1}`,description:text(line.description,160),quantity:Number(line.quantity),unitPriceCents:Number(line.unitPriceCents)};
+  return {id:text(line.id,80)||`line-${index+1}`,description:text(line.description,160),quantity:Number(line.quantity),unitPriceCents:Number(line.unitPriceCents),pricingProfileOverride:line.pricingProfileOverride==='standard'||line.pricingProfileOverride==='legacy'?line.pricingProfileOverride:null};
  }):[];
  return {
-  status:raw.status==='ready'?'ready':'draft',client:text(raw.client,120),property:text(raw.property,200),squareFeet:text(raw.squareFeet,50),
+  status:raw.status==='ready'?'ready':'draft',client:text(raw.client,120),property:text(raw.property,200),squareFeet:text(raw.squareFeet,50),pricingProfile:raw.pricingProfile==='standard'||raw.pricingProfile==='legacy'?raw.pricingProfile:'review',pricingProfileMode:raw.pricingProfileMode==='invoice'?'invoice':'automatic',
   currency:raw.currency==='USD'?'USD':'CAD',invoiceDate:isoDate(raw.invoiceDate),dueDate:isoDate(raw.dueDate),completionConfirmed:raw.completionConfirmed===true,
   taxTreatment:raw.taxTreatment==='taxable'?'taxable':raw.taxTreatment==='no-tax'?'no-tax':'review',taxRateBps:Number(raw.taxRateBps)||0,taxNote:text(raw.taxNote,500),
   lines,notes:text(raw.notes,2000)
@@ -46,6 +46,7 @@ export function validateInvoiceDraft(input:InvoiceDraftInput,job:Job,openReviews
  if(input.taxTreatment!=='taxable'&&input.taxRateBps!==0)errors.push('Only taxable drafts can have a tax rate.');
  if(input.taxNote.length>500||input.notes.length>2000)errors.push('An invoice note is too long.');
  if(input.status==='ready'){
+  if(input.lines.some(line=>!line.pricingProfileOverride&&input.pricingProfile==='review'))errors.push('Confirm Standard or Legacy pricing for every invoice line before marking the draft ready.');
   if(job.status!=='Booked')errors.push('Only a booked job can be made ready for invoicing.');
   if(DateTime.fromISO(job.start).setZone('America/Vancouver')>now)errors.push('A future job cannot be made ready for invoicing.');
   if(!input.completionConfirmed)errors.push('Confirm that the job was completed.');
@@ -60,5 +61,5 @@ export function validateInvoiceDraft(input:InvoiceDraftInput,job:Job,openReviews
 
 export function newInvoiceInput(job:Job,now=DateTime.now().setZone('America/Vancouver')):InvoiceDraftInput{
  const invoiceDate=now.toISODate()!;
- return {status:'draft',client:job.client,property:job.location,squareFeet:'',currency:'CAD',invoiceDate,dueDate:now.plus({days:30}).toISODate()!,completionConfirmed:false,taxTreatment:'review',taxRateBps:0,taxNote:'',lines:(job.services.length?job.services:['Service to confirm']).map((description,index):InvoiceLine=>({id:`line-${index+1}`,description,quantity:1,unitPriceCents:0})),notes:''};
+ return {status:'draft',client:job.client,property:job.location,squareFeet:'',pricingProfile:'review',pricingProfileMode:'automatic',currency:'CAD',invoiceDate,dueDate:now.plus({days:30}).toISODate()!,completionConfirmed:false,taxTreatment:'review',taxRateBps:0,taxNote:'',lines:(job.services.length?job.services:['Service to confirm']).map((description,index):InvoiceLine=>({id:`line-${index+1}`,description,quantity:1,unitPriceCents:0,pricingProfileOverride:null})),notes:''};
 }

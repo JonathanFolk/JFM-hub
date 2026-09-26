@@ -12,7 +12,10 @@ test('HTTP serves the app, excludes secrets, and rejects cross-origin changes',a
  const staticDir=join(dir,'dist');mkdirSync(staticDir);writeFileSync(join(staticDir,'index.html'),'<!doctype html><title>JFM Hub test</title>');
  seed.setSync({id:'google-calendar',label:'Test',mode:'live',lastAttempt:null,lastSuccess:null,snapshotAt:null,error:null,count:0,syncToken:'must-not-leak'});
  seed.apply('test',[{id:'invoice-job',title:'PP Synthetic Client',start:'2026-09-20T10:00:00-07:00',end:'2026-09-20T11:00:00-07:00',location:'Synthetic property'}]);const invoiceJobId=seed.jobs()[0].id;
- seed.review({id:'synthetic',kind:'Check booking',title:'Synthetic client',detail:'Test only',jobId:null,source:'test',status:'open',updatedAt:new Date().toISOString()});seed.close();
+ seed.setSetting('active-calendar','test');
+ seed.review({id:'synthetic',kind:'Check booking',title:'Synthetic client',detail:'Test only',jobId:null,source:'test',status:'open',updatedAt:new Date().toISOString()});
+ seed.review({id:'sort-me',kind:'Check booking',title:'Synthetic shoot',detail:'Sort this shoot',jobId:invoiceJobId,source:'test',status:'open',updatedAt:new Date().toISOString()});
+ seed.review({id:'optional-note',kind:'Check booking',title:'Optional note',detail:'Test only',jobId:null,source:'test',status:'open',updatedAt:new Date().toISOString()});seed.close();
  const child=spawn(process.execPath,['--import','tsx','server/index.ts'],{env:{...process.env,APP_MODE:'local',PORT:String(port),APP_ORIGIN:origin,DATA_DIR:dir,BACKUP_DIR:join(dir,'backups'),STATIC_DIR:staticDir},stdio:['ignore','pipe','pipe']});
  try{
  await new Promise<void>((resolve,reject)=>{let stderr='';const timeout=setTimeout(()=>reject(new Error('Server startup timed out: '+stderr)),10000);child.stderr.on('data',data=>stderr+=String(data));child.stdout.on('data',()=>{clearTimeout(timeout);resolve();});child.on('exit',code=>{clearTimeout(timeout);reject(new Error(`Server exited (${code}): ${stderr}`));});});
@@ -23,13 +26,26 @@ test('HTTP serves the app, excludes secrets, and rejects cross-origin changes',a
  assert.equal((await post({Origin:origin})).status,403);
  assert.equal((await post({Origin:origin,'X-JFM-Request':'1'})).status,200);
  const mutationHeaders={'Content-Type':'application/json',Origin:origin,'X-JFM-Request':'1'};
+ const noNoteResponse=await fetch(origin+'/api/reviews/optional-note',{method:'POST',headers:mutationHeaders,body:JSON.stringify({status:'dismissed'})});assert.equal(noNoteResponse.status,200);
+ const rateResponse=await fetch(origin+'/api/rates',{method:'POST',headers:mutationHeaders,body:JSON.stringify({profile:'standard',category:'Real Estate',service:'Synthetic add-on',squareFootageRange:'2,501–3,500 sq ft',currency:'CAD',unitPriceCents:75000})});assert.equal(rateResponse.status,200);
+ const sortResponse=await fetch(origin+'/api/reviews/sort-me/sort',{method:'POST',headers:mutationHeaders,body:JSON.stringify({category:'Real Estate',squareFootageRange:'2,501–3,500 sq ft'})});assert.equal(sortResponse.status,200);
  const createdResponse=await fetch(origin+'/api/invoices',{method:'POST',headers:mutationHeaders,body:JSON.stringify({jobId:invoiceJobId})});assert.equal(createdResponse.status,201);const invoice=await createdResponse.json();
+ assert.equal(invoice.squareFeet,'2,501–3,500 sq ft');assert.equal(invoice.pricingProfile,'standard');assert.equal(invoice.pricingProfileMode,'automatic');const suggestions=await (await fetch(origin+`/api/invoices/${invoice.id}/suggestions`)).json();assert.equal(suggestions.rates[0].amountCents,45000);assert.deepEqual(suggestions.custom,[]);
+ const legacyPreview=await (await fetch(origin+`/api/invoices/${invoice.id}/suggestions`,{method:'POST',headers:mutationHeaders,body:JSON.stringify({draft:{...invoice,pricingProfileMode:'invoice',pricingProfile:'legacy'}})})).json();assert.equal(legacyPreview.profile,'legacy');assert.equal(legacyPreview.rates[0].profile,'legacy');
+ const linePreview=await (await fetch(origin+`/api/invoices/${invoice.id}/suggestions`,{method:'POST',headers:mutationHeaders,body:JSON.stringify({draft:{...invoice,lines:invoice.lines.map((line:any)=>({...line,pricingProfileOverride:'legacy'}))}})})).json();assert.equal(linePreview.profile,'standard');assert.equal(linePreview.rates[0].profile,'legacy');
+ const clientOverride=await fetch(origin+`/api/invoices/${invoice.id}/client-pricing`,{method:'POST',headers:mutationHeaders,body:JSON.stringify({client:invoice.client,profile:'legacy'})});assert.equal(clientOverride.status,200);assert.equal((await clientOverride.json()).automatic.profile,'legacy');
+ const updatedInvoice=await (await fetch(origin+'/api/dashboard')).json();assert.equal(updatedInvoice.invoices[0].pricingProfile,'legacy');
+ const clearOverride=await fetch(origin+`/api/invoices/${invoice.id}/client-pricing`,{method:'POST',headers:mutationHeaders,body:JSON.stringify({client:invoice.client,profile:null})});assert.equal(clearOverride.status,200);
  const invalidResponse=await fetch(origin+`/api/invoices/${invoice.id}`,{method:'POST',headers:mutationHeaders,body:JSON.stringify({expectedUpdatedAt:invoice.updatedAt,draft:{...invoice,status:'ready'}})});assert.equal(invalidResponse.status,400);
- const savedResponse=await fetch(origin+`/api/invoices/${invoice.id}`,{method:'POST',headers:mutationHeaders,body:JSON.stringify({expectedUpdatedAt:invoice.updatedAt,draft:{...invoice,status:'ready',squareFeet:'2,000 approximate',completionConfirmed:true,taxTreatment:'taxable',taxRateBps:500,taxNote:'BC GST confirmed',lines:invoice.lines.map((line:any)=>({...line,unitPriceCents:75000}))}})});assert.equal(savedResponse.status,200);
+ const savedResponse=await fetch(origin+`/api/invoices/${invoice.id}`,{method:'POST',headers:mutationHeaders,body:JSON.stringify({expectedUpdatedAt:invoice.updatedAt,draft:{...invoice,status:'ready',pricingProfile:'standard',squareFeet:'2,000 approximate',completionConfirmed:true,taxTreatment:'taxable',taxRateBps:500,taxNote:'BC GST confirmed',lines:invoice.lines.map((line:any)=>({...line,unitPriceCents:75000}))}})});assert.equal(savedResponse.status,200);
+ const deleteResponse=await fetch(origin+`/api/jobs/${invoiceJobId}/delete`,{method:'POST',headers:mutationHeaders,body:'{}'});assert.equal(deleteResponse.status,200);
+ const deletedDashboard=await (await fetch(origin+'/api/dashboard')).json();assert.equal(deletedDashboard.jobs.length,0);assert.equal(deletedDashboard.invoices.length,0);assert.equal(deletedDashboard.deletedItems.length,1);
+ const restoreResponse=await fetch(origin+`/api/deleted/${deletedDashboard.deletedItems[0].reviewId}/restore`,{method:'POST',headers:mutationHeaders,body:'{}'});assert.equal(restoreResponse.status,200);
+ const restoredDashboard=await (await fetch(origin+'/api/dashboard')).json();assert.equal(restoredDashboard.jobs.length,1);assert.equal(restoredDashboard.invoices.length,1);
  assert.equal((await fetch(origin+'/api/unknown')).status,404);
  assert.equal((await fetch(origin+'/auth/callback?state=forged&code=forged')).status,400);
  assert.deepEqual(await (await fetch(origin+'/healthz')).json(),{ok:true});
- const stored=new Store(join(dir,'hub.sqlite'));assert.equal(stored.reviews()[0].resolution,'Synthetic review');assert.equal(stored.invoices()[0].status,'ready');stored.close();
+ const stored=new Store(join(dir,'hub.sqlite'));assert.equal(stored.reviews().find(review=>review.id==='synthetic')?.resolution,'Synthetic review');assert.equal(stored.reviews().find(review=>review.id==='optional-note')?.status,'dismissed');assert.equal(stored.reviews().find(review=>review.id==='optional-note')?.resolution,'');assert.equal(stored.invoices()[0].status,'ready');stored.close();
  }finally{
  const stopped=new Promise<void>(r=>child.once('exit',()=>r()));child.kill('SIGTERM');await stopped;rmSync(dir,{recursive:true,force:true});
  }

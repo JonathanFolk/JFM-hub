@@ -13,6 +13,10 @@ import {config,validateConfig,validEncryptionKey} from '../server/config.ts';
 import {dailyBackup,scheduledTick} from '../server/sync.ts';
 import type {RawEvent} from '../server/types.ts';
 import {invoiceTotals,normalizeInvoiceInput,validateInvoiceDraft} from '../server/invoicing.ts';
+import {customPricePrompts,normalizeRate,rateSuggestions} from '../server/rates.ts';
+import {extractEmailPrices} from '../server/gmail.ts';
+import {currentJobs} from '../server/calendar-sources.ts';
+import {referenceForClient,pricingQuestions} from '../server/reference.ts';
 const raw=(title='PP Test Client',extra:Partial<RawEvent>={}):RawEvent=>({id:'test-1',title,start:'2026-09-21T10:00:00-07:00',end:'2026-09-21T11:00:00-07:00',location:'Test property',...extra});
 test('service aliases preserve client names and never infer drone from exterior',()=>{
  assert.equal(parseBooking(raw('PP Vi Tran'),'test')?.client,'Vi Tran');
@@ -74,6 +78,93 @@ test('review decisions survive identical reimport and backup can be restored',as
  const file=await s.backup(join(dir,'recovery.sqlite'));const recovered=new DatabaseSync(file,{readOnly:true});assert.equal(recovered.prepare('SELECT COUNT(*) n FROM jobs').get()?.n,1);assert.equal(JSON.parse(String(recovered.prepare('SELECT payload FROM reviews').get()?.payload)).resolution,'Checked by owner');recovered.close();
  }finally{s.close();rmSync(dir,{recursive:true,force:true});}
 });
+test('review decisions may be saved without a note and do not delete records',()=>{
+ const s=new Store(':memory:');try{
+  s.review({id:'optional-note',kind:'Check booking',title:'Test',detail:'Check',jobId:null,source:'test',status:'open',updatedAt:new Date().toISOString()});
+  s.resolve('optional-note','dismissed','');
+  assert.equal(s.reviews().length,1);assert.equal(s.reviews()[0].status,'dismissed');assert.equal(s.reviews()[0].resolution,'');
+ }finally{s.close();}
+});
+test('sorting a shoot survives reimport and starts a private invoice draft',()=>{
+ const s=new Store(':memory:');try{
+  s.apply('google-calendar',[raw('PP Client With Missing Property',{location:''})]);
+  const review=s.reviews().find(item=>item.jobId===s.jobs()[0].id)!;
+  s.sortReview(review.id,'Real Estate','2,501–3,500 sq ft');
+  assert.equal(s.reviews().find(item=>item.id===review.id)?.status,'reviewed');
+  assert.equal(s.sorts()[0].category,'Real Estate');assert.equal(s.invoices().length,1);assert.equal(s.invoices()[0].squareFeet,'2,501–3,500 sq ft');
+  s.apply('google-calendar',[raw('PP Client With Missing Property',{location:''})]);
+  assert.equal(s.sorts()[0].squareFootageRange,'2,501–3,500 sq ft');
+ }finally{s.close();}
+});
+test('deleted shoots and linked drafts stay hidden through reimport, then restore',()=>{
+ const s=new Store(':memory:');try{
+  s.setSetting('active-calendar','google-calendar');s.apply('google-calendar',[raw('PP Test Client')]);const job=s.jobs()[0];s.createInvoice(job.id);assert.equal(currentJobs(s).length,1);
+  s.deleteJob(job.id);assert.equal(currentJobs(s).length,0);assert.equal(s.deletedItems().length,1);
+  s.apply('google-calendar',[raw('PP Test Client')]);assert.equal(currentJobs(s).length,0);assert.equal(s.invoices().length,1);
+  s.restoreReview(s.deletedItems()[0].reviewId);assert.equal(currentJobs(s).length,1);assert.equal(s.deletedItems().length,0);
+ }finally{s.close();}
+});
+test('approved rate suggestions require a single exact category, range, service and currency match',()=>{
+ const s=new Store(':memory:');try{
+  s.apply('test',[raw()]);const invoice=s.createInvoice(s.jobs()[0].id);
+  const rate=normalizeRate({profile:'standard',category:'Real Estate',service:'Premium photo',squareFootageRange:'2,501–3,500 sq ft',currency:'CAD',unitPriceCents:75000});s.saveRate(rate);
+  const confirmed={...invoice,pricingProfile:'standard' as const};
+  assert.equal(rateSuggestions(confirmed,{jobId:invoice.jobId,category:'Real Estate',squareFootageRange:'2,501–3,500 sq ft',updatedAt:'now'},s.rates())[0]?.amountCents,75000);
+  assert.equal(rateSuggestions(invoice,{jobId:invoice.jobId,category:'Commercial',squareFootageRange:'',updatedAt:'now'},s.rates()).length,0);
+ }finally{s.close();}
+});
+test('current CAD rate sheets seed once, and custom tiers never supply a fixed price',()=>{
+ const dir=mkdtempSync(join(tmpdir(),'jfm-rates-')),path=join(dir,'hub.sqlite');
+ try{
+  const s=new Store(path);assert.equal(s.rates().filter(rate=>rate.profile==='standard').length,43);assert.equal(s.rates().filter(rate=>rate.profile==='legacy').length,44);
+  const premium=s.rates().find(rate=>rate.profile==='standard'&&rate.service==='Premium photo'&&rate.squareFootageRange==='6,001–7,500 sq ft')!;assert.equal(premium.unitPriceCents,85000);assert.equal(premium.maxSqft,7500);
+  const legacy=s.rates().find(rate=>rate.profile==='legacy'&&rate.service==='Premium photo'&&rate.squareFootageRange==='6,001–7,500 sq ft')!;assert.equal(legacy.unitPriceCents,65000);assert.equal(legacy.maxSqft,7500);
+  s.apply('test',[raw()]);const invoice={...s.createInvoice(s.jobs()[0].id),pricingProfile:'standard' as const};
+  const sort={jobId:invoice.jobId,category:'Real Estate' as const,squareFootageRange:'7,001–7,500 sq ft',updatedAt:'now'};
+  assert.equal(rateSuggestions(invoice,sort,s.rates())[0]?.amountCents,85000);
+  assert.equal(rateSuggestions({...invoice,pricingProfile:'legacy'},sort,s.rates())[0]?.amountCents,65000);
+  const custom={...sort,squareFootageRange:'Over 7,500 sq ft'};
+  assert.equal(rateSuggestions(invoice,custom,s.rates()).length,0);
+  assert.equal(customPricePrompts(invoice,custom,s.guidance())[0]?.upperCents,125000);
+  s.close();const reopened=new Store(path);assert.equal(reopened.rates().length,87);reopened.close();
+ }finally{rmSync(dir,{recursive:true,force:true});}
+});
+test('email suggestions show only explicit currency amounts',()=>{
+ const payload={id:'message',threadId:'thread',snippet:'Quoted $600 or CAD $750 for this project',payload:{mimeType:'text/plain',body:{data:Buffer.from('Quoted $600 or CAD $750 for this project').toString('base64url')},headers:[{name:'Subject',value:'Project quote'}]}};
+ const matches=extractEmailPrices(payload);assert.equal(matches.length,1);assert.equal(matches[0].amountCents,75000);assert.equal(matches[0].currency,'CAD');
+});
+test('reference import is idempotent and unique Legacy clients default to their sheet',()=>{
+ const s=new Store(':memory:');try{
+  const bundle={customers_master:[{customer_id:'C1',display_name:'Exact Client',legacy_status:'YES - on list (exact email)',billing_route:'PDF / e-transfer',pdf_invoices_2026:'2',pdf_client_names:'Exact Client'}],invoices_2026_extracted:[{file:'sample.pdf',jfm_no_printed:'26001',date_issued:'2026-05-01',due_date:'2026-06-01',balance_due_printed:'450',services:'Premium photo',billto_name:'Exact Client',billto_company:'',client_in_filename:'',totals_reconcile:'True'}],pricing_2026Q2:[{table:'stripe_observed',section:'Fees',item:'Rush',condition:'',price_cad:'125',source:'Stripe export',notes:'Conflicts with sheet',confirm:'yes'}],audit_backtest_2026:[],legacy_list_match:[],acronyms_v0:[]};
+  s.importReferenceBundle(bundle,'a'.repeat(64));s.importReferenceBundle(bundle,'a'.repeat(64));
+  assert.throws(()=>s.importReferenceBundle({...bundle,customers_master:[]},'b'.repeat(64)),/different reference archive/);
+  assert.equal(s.referenceRows('customers_master').length,1);assert.equal(s.referenceImports().length,6);
+  const match=referenceForClient(s,'EXACT  CLIENT');assert.equal(match.customer?.profileHint,'legacy');assert.equal(match.historicalInvoices.length,1);
+  assert.equal(referenceForClient(s,'Another Client').customer,null);assert.equal(pricingQuestions(s).length,1);
+  s.apply('test',[raw('PP Exact Client')]);const invoice=s.createInvoice(s.jobs()[0].id);assert.equal(invoice.pricingProfile,'legacy');assert.equal(invoice.pricingProfileMode,'automatic');
+  assert.equal(rateSuggestions(invoice,{jobId:invoice.jobId,category:'Real Estate',squareFootageRange:'2,501–3,500 sq ft',updatedAt:'now'},s.rates())[0]?.profile,'legacy');
+ }finally{s.close();}
+});
+test('automatic client pricing, invoice overrides and individual line overrides stay distinct',()=>{
+ const s=new Store(':memory:');try{
+  const empty={customers_master:[{customer_id:'C1',display_name:'Legacy Client',legacy_status:'YES - on list (exact email)'},{customer_id:'C2',display_name:'Standard Client',legacy_status:'NO'},{customer_id:'C3',display_name:'Ambiguous Client',legacy_status:'NO'},{customer_id:'C4',display_name:'Ambiguous Client',legacy_status:'YES - on list'}],invoices_2026_extracted:[],pricing_2026Q2:[],audit_backtest_2026:[],legacy_list_match:[],acronyms_v0:[]};
+  s.importReferenceBundle(empty,'c'.repeat(64));
+  assert.equal(referenceForClient(s,'Legacy Client','','Real Estate').automatic.profile,'legacy');
+  assert.equal(referenceForClient(s,'Standard Client','','Real Estate').automatic.profile,'standard');
+  assert.equal(referenceForClient(s,'New Client','','Real Estate').automatic.profile,'standard');
+  assert.equal(referenceForClient(s,'Ambiguous Client','','Real Estate').automatic.profile,'review');
+  assert.equal(referenceForClient(s,'New Client','2026-03-10','Real Estate').automatic.profile,'legacy');
+  assert.throws(()=>s.setClientPricingOverride('Ambiguous Client','legacy'),/ambiguous/);
+  s.setClientPricingOverride('New Client','legacy');assert.equal(referenceForClient(s,'New Client','','Real Estate').automatic.profile,'legacy');
+  s.setClientPricingOverride('New Client',null);assert.equal(referenceForClient(s,'New Client','','Real Estate').automatic.profile,'standard');
+  s.apply('test',[raw('PP Legacy Client')]);const invoice=s.createInvoice(s.jobs()[0].id);assert.equal(invoice.pricingProfile,'legacy');
+  const sort={jobId:invoice.jobId,category:'Real Estate' as const,squareFootageRange:'2,501–3,500 sq ft',updatedAt:'now'};
+  const legacy=rateSuggestions(invoice,sort,s.rates())[0];assert.equal(legacy?.profile,'legacy');
+  const lineOverride={...invoice,lines:invoice.lines.map(line=>({...line,pricingProfileOverride:'standard' as const}))};assert.equal(rateSuggestions(lineOverride,sort,s.rates())[0]?.profile,'standard');
+  const invoiceOverride={...invoice,pricingProfileMode:'invoice' as const,pricingProfile:'standard' as const};assert.equal(s.effectiveInvoicePricing(invoiceOverride).pricingProfile,'standard');
+  assert.equal(s.effectiveInvoicePricing({...invoice,client:'Standard Client'}).pricingProfile,'standard');
+ }finally{s.close();}
+});
 test('tokens are authenticated encryption and production fails closed',()=>{
  const key=Buffer.alloc(32,7).toString('base64');const a=seal('private-token',key);assert.equal(unseal(a,key),'private-token');assert.notEqual(a,seal('private-token',key));const b=Buffer.from(a,'base64');b[b.length-1]^=1;assert.throws(()=>unseal(b.toString('base64'),key));
  assert.equal(validEncryptionKey(key),true);assert.equal(validEncryptionKey('!'.repeat(44)),false);
@@ -99,11 +190,13 @@ test('a new booking change reopens a previously reviewed change',()=>{
 });
 test('invoice drafts require explicit completion, prices, tax treatment and clear reviews',()=>{
  const job=parseBooking(raw(), 'test')!;
- const base=normalizeInvoiceInput({status:'ready',client:'Test Client',property:'Test property',squareFeet:'2,000 approximate',currency:'CAD',invoiceDate:'2026-09-25',dueDate:'2026-10-25',completionConfirmed:true,taxTreatment:'taxable',taxRateBps:500,taxNote:'BC GST confirmed',lines:[{id:'photos',description:'Premium photo',quantity:1,unitPriceCents:75000}],notes:''});
+ const base=normalizeInvoiceInput({status:'ready',client:'Test Client',property:'Test property',squareFeet:'2,000 approximate',pricingProfile:'standard',currency:'CAD',invoiceDate:'2026-09-25',dueDate:'2026-10-25',completionConfirmed:true,taxTreatment:'taxable',taxRateBps:500,taxNote:'BC GST confirmed',lines:[{id:'photos',description:'Premium photo',quantity:1,unitPriceCents:75000}],notes:''});
  assert.deepEqual(validateInvoiceDraft(base,job,[],DateTime.fromISO('2026-09-25T12:00:00-07:00')),[]);
  assert.deepEqual(invoiceTotals(base),{subtotalCents:75000,taxCents:3750,totalCents:78750});
  assert.ok(validateInvoiceDraft({...base,taxTreatment:'review',taxRateBps:0},job,[],DateTime.fromISO('2026-09-25T12:00:00-07:00')).some(error=>error.includes('tax treatment')));
  assert.ok(validateInvoiceDraft(base,job,[{id:'review',kind:'Check booking',title:'Test',detail:'Check',jobId:job.id,source:'test',status:'open',updatedAt:'now'}],DateTime.fromISO('2026-09-25T12:00:00-07:00')).some(error=>error.includes('open review')));
+ const q1=parseBooking(raw('PP Test Client',{start:'2026-03-25T10:00:00-07:00',end:'2026-03-25T11:00:00-07:00'}),'test')!;
+ assert.deepEqual(validateInvoiceDraft(base,q1,[],DateTime.fromISO('2026-09-25T12:00:00-07:00')),[]);
 });
 test('invoice draft saves preserve history and reject stale updates',()=>{
  const s=new Store(':memory:');try{
