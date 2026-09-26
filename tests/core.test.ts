@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,readdirSync,rmSync} from 'node:fs';
+import {mkdirSync,mkdtempSync,readdirSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
@@ -103,7 +103,7 @@ test('calendar failure preserves success time and does not prevent a backup',asy
 test('backup creates daily and monthly copies in both configured locations',async()=>{
  const dir=mkdtempSync(join(tmpdir(),'jfm-backup-')),primary=join(dir,'primary'),secondary=join(dir,'secondary');
  const oldPrimary=config.backupDir,oldSecondary=config.secondaryBackupDir;config.backupDir=primary;config.secondaryBackupDir=secondary;const s=new Store(join(dir,'live.sqlite'));
- try{await dailyBackup(s,new Date('2026-10-01T02:00:00Z'));await dailyBackup(s,new Date('2026-10-01T03:00:00Z'));assert.deepEqual(readdirSync(primary).sort(),['hub-2026-09-30.sqlite','hub-monthly-2026-09.sqlite']);assert.deepEqual(readdirSync(secondary).sort(),['hub-2026-09-30.sqlite','hub-monthly-2026-09.sqlite']);assert.equal(s.sync('backup')?.lastSuccess,'2026-10-01T03:00:00.000Z');}
+ try{mkdirSync(primary);writeFileSync(join(primary,'hub-2026-09-29.sqlite-wal'),'');writeFileSync(join(primary,'hub-2026-09-29.sqlite-shm'),'legacy');await dailyBackup(s,new Date('2026-10-01T02:00:00Z'));await dailyBackup(s,new Date('2026-10-01T03:00:00Z'));assert.deepEqual(readdirSync(primary).sort(),['hub-2026-09-30.sqlite','hub-monthly-2026-09.sqlite']);assert.deepEqual(readdirSync(secondary).sort(),['hub-2026-09-30.sqlite','hub-monthly-2026-09.sqlite']);assert.equal(s.sync('backup')?.lastSuccess,'2026-10-01T03:00:00.000Z');}
  finally{s.close();config.backupDir=oldPrimary;config.secondaryBackupDir=oldSecondary;rmSync(dir,{recursive:true,force:true});}
 });
 test('cancelled recurrence exception without a start becomes a reviewable tombstone',()=>{

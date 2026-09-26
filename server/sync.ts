@@ -34,6 +34,7 @@ async function backupSet(store:Store,directory:string,date:string){
  await store.backup(join(directory,`hub-${date}.sqlite`));
  await store.backup(join(directory,`hub-monthly-${date.slice(0,7)}.sqlite`));
  const files=readdirSync(directory);
+ for(const f of files.filter(n=>/^hub-(?:\d{4}-\d{2}-\d{2}|monthly-\d{4}-\d{2})\.sqlite-(?:wal|shm)$/.test(n)))unlinkSync(join(directory,f));
  const daily=files.filter(n=>/^hub-\d{4}-\d{2}-\d{2}\.sqlite$/.test(n)).sort();for(const f of daily.slice(0,-30))unlinkSync(join(directory,f));
  const monthly=files.filter(n=>/^hub-monthly-\d{4}-\d{2}\.sqlite$/.test(n)).sort();for(const f of monthly.slice(0,-12))unlinkSync(join(directory,f));
  return Math.min(daily.length,30);
