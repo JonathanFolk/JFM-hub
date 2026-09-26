@@ -17,6 +17,7 @@ Phase 2 began September 25, 2026 after Jonathan accepted the technical Phase 1 r
 - [x] A private Standard and Legacy rate catalog suggests matching line prices by profile, category, service, currency and square-footage band. Applying a suggestion still requires a human choice; a bulk action can apply only exact matches.
 - [x] A local-only import of six reference CSVs keeps customer, historical invoice, backtest, acronym and observed-price evidence separate from approved rates. Unique exact-name matches select the default Standard or Legacy sheet; ambiguous names stay in review. Client-wide, whole-invoice and individual-line overrides are available.
 - [x] Optional read-only Gmail connection for `info@jonathanfolk.ca` searches matching commercial quote emails and surfaces explicit CAD or USD amounts as reviewable suggestions. Email bodies are not stored.
+- [x] Read-only invoice-evidence sync for the live `2026` master Sheet and business Gmail. The initial manual run scans 30 days, then hourly/manual runs read Gmail changes. The Hub retains source IDs and short excerpts, proposes sent/payment matches, and records Confirm/Dismiss decisions without changing a Sheet checkbox or payment account. Ambiguous amounts and missing matches remain visible. Direct Stripe evidence is not connected yet.
 
 The supplied current Photo (2026 Q2) and Video (2026 Q2a) PDFs seed 43 Standard CAD prices; the two Legacy PDFs seed 44 Legacy CAD prices. The imported pricing evidence says Legacy rates continued for listed clients from April 1, 2026, while all clients used those rates before that date. Automatic drafts default to Legacy for uniquely identified listed clients and 2026 Q1 jobs, or Standard for unique non-Legacy and general real-estate clients. Conflicting or duplicate identities need review. Explicit overrides are audited at client scope and saved on invoice drafts at invoice or line scope; sheet selection never silently rewrites entered prices. Owner clarification resolves both premium-photo `+7001` typos: the published tier ends at 7,500 sq ft, and 7,501+ requires a custom quote. The owner's CAD $1,000–$1,250 expectation appears only as guidance for Standard work. Exact 1,000 and 2,500 sq ft gaps in the printed tiers require manual confirmation. Gmail access requires enabling the Gmail API and adding its read-only scope to the Google OAuth consent configuration before connection.
 
@@ -29,7 +30,7 @@ The supplied current Photo (2026 Q2) and Video (2026 Q2a) PDFs seed 43 Standard 
 - generate or send a client invoice;
 - infer a price from a calendar abbreviation;
 - infer Canadian or US tax treatment;
-- mark an invoice paid or automatically match a payment;
+- mark an invoice paid or automatically allocate a payment (the new queue suggests matches for review only);
 - change a calendar event.
 
 These are intentional controls, not missing UI wiring. The Google Sheet remains the financial master and previously issued invoices remain frozen.

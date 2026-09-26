@@ -15,18 +15,22 @@ test('HTTP serves the app, excludes secrets, and rejects cross-origin changes',a
  seed.setSetting('active-calendar','test');
  seed.review({id:'synthetic',kind:'Check booking',title:'Synthetic client',detail:'Test only',jobId:null,source:'test',status:'open',updatedAt:new Date().toISOString()});
  seed.review({id:'sort-me',kind:'Check booking',title:'Synthetic shoot',detail:'Sort this shoot',jobId:invoiceJobId,source:'test',status:'open',updatedAt:new Date().toISOString()});
- seed.review({id:'optional-note',kind:'Check booking',title:'Optional note',detail:'Test only',jobId:null,source:'test',status:'open',updatedAt:new Date().toISOString()});seed.close();
+ seed.review({id:'optional-note',kind:'Check booking',title:'Optional note',detail:'Test only',jobId:null,source:'test',status:'open',updatedAt:new Date().toISOString()});
+ const now=new Date().toISOString();seed.saveReconciliationSuggestion({id:'mail-test',kind:'payment',source:'gmail',sourceId:'gmail-1',threadId:'thread-1',subject:'Interac transfer received',from:'Test sender',date:now,excerpt:'Synthetic payment',invoiceNumbers:['26001'],amountCents:32760,currency:'CAD',candidateRows:[{row:10,number:'26001',client:'ALP Studio',totalCents:32760,paid:false,notes:''}],match:'invoice-number',status:'open',resolution:'',createdAt:now,updatedAt:now});seed.close();
  const child=spawn(process.execPath,['--import','tsx','server/index.ts'],{env:{...process.env,APP_MODE:'local',PORT:String(port),APP_ORIGIN:origin,DATA_DIR:dir,BACKUP_DIR:join(dir,'backups'),STATIC_DIR:staticDir},stdio:['ignore','pipe','pipe']});
  try{
  await new Promise<void>((resolve,reject)=>{let stderr='';const timeout=setTimeout(()=>reject(new Error('Server startup timed out: '+stderr)),10000);child.stderr.on('data',data=>stderr+=String(data));child.stdout.on('data',()=>{clearTimeout(timeout);resolve();});child.on('exit',code=>{clearTimeout(timeout);reject(new Error(`Server exited (${code}): ${stderr}`));});});
  assert.equal((await fetch(origin)).status,200);
  const dashboard=await (await fetch(origin+'/api/dashboard')).text();assert.ok(!dashboard.includes('must-not-leak'));assert.ok(!dashboard.includes('syncToken'));
+ assert.equal((await (await fetch(origin+'/api/dashboard')).json()).reconciliation.length,1);
  const post=(headers:Record<string,string>)=>fetch(origin+'/api/reviews/synthetic',{method:'POST',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify({status:'reviewed',resolution:'Synthetic review'})});
  assert.equal((await post({Origin:'https://other.example','X-JFM-Request':'1'})).status,403);
  assert.equal((await post({Origin:origin})).status,403);
  assert.equal((await post({Origin:origin,'X-JFM-Request':'1'})).status,200);
  const mutationHeaders={'Content-Type':'application/json',Origin:origin,'X-JFM-Request':'1'};
  const noNoteResponse=await fetch(origin+'/api/reviews/optional-note',{method:'POST',headers:mutationHeaders,body:JSON.stringify({status:'dismissed'})});assert.equal(noNoteResponse.status,200);
+ assert.equal((await fetch(origin+'/api/reconciliation/sync',{method:'POST',headers:mutationHeaders,body:'{}'})).status,503);
+ assert.equal((await fetch(origin+'/api/reconciliation/mail-test/review',{method:'POST',headers:mutationHeaders,body:JSON.stringify({status:'confirmed',resolution:'Verified manually'})})).status,200);
  const rateResponse=await fetch(origin+'/api/rates',{method:'POST',headers:mutationHeaders,body:JSON.stringify({profile:'standard',category:'Real Estate',service:'Synthetic add-on',squareFootageRange:'2,501–3,500 sq ft',currency:'CAD',unitPriceCents:75000})});assert.equal(rateResponse.status,200);
  const sortResponse=await fetch(origin+'/api/reviews/sort-me/sort',{method:'POST',headers:mutationHeaders,body:JSON.stringify({category:'Real Estate',squareFootageRange:'2,501–3,500 sq ft'})});assert.equal(sortResponse.status,200);
  const createdResponse=await fetch(origin+'/api/invoices',{method:'POST',headers:mutationHeaders,body:JSON.stringify({jobId:invoiceJobId})});assert.equal(createdResponse.status,201);const invoice=await createdResponse.json();
@@ -45,7 +49,7 @@ test('HTTP serves the app, excludes secrets, and rejects cross-origin changes',a
  assert.equal((await fetch(origin+'/api/unknown')).status,404);
  assert.equal((await fetch(origin+'/auth/callback?state=forged&code=forged')).status,400);
  assert.deepEqual(await (await fetch(origin+'/healthz')).json(),{ok:true});
- const stored=new Store(join(dir,'hub.sqlite'));assert.equal(stored.reviews().find(review=>review.id==='synthetic')?.resolution,'Synthetic review');assert.equal(stored.reviews().find(review=>review.id==='optional-note')?.status,'dismissed');assert.equal(stored.reviews().find(review=>review.id==='optional-note')?.resolution,'');assert.equal(stored.invoices()[0].status,'ready');stored.close();
+ const stored=new Store(join(dir,'hub.sqlite'));assert.equal(stored.reviews().find(review=>review.id==='synthetic')?.resolution,'Synthetic review');assert.equal(stored.reviews().find(review=>review.id==='optional-note')?.status,'dismissed');assert.equal(stored.reviews().find(review=>review.id==='optional-note')?.resolution,'');assert.equal(stored.invoices()[0].status,'ready');assert.equal(stored.reconciliationSuggestions()[0].status,'confirmed');stored.close();
  }finally{
  const stopped=new Promise<void>(r=>child.once('exit',()=>r()));child.kill('SIGTERM');await stopped;rmSync(dir,{recursive:true,force:true});
  }

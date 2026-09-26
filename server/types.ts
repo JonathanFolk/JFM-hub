@@ -26,6 +26,13 @@ export type PriceSuggestion={lineId:string;rateId:string;amountCents:number;curr
 export type RateGuidance={id:string;profile:PricingProfile;category:ShootCategory;service:string;minSqft:number;maxSqft:number|null;currency:'CAD'|'USD';lowerCents:number|null;upperCents:number|null;note:string;source:string};
 export type CustomPricePrompt={lineId:string;service:string;currency:'CAD'|'USD';lowerCents:number|null;upperCents:number|null;note:string};
 export type EmailPriceSuggestion={messageId:string;threadId:string;subject:string;from:string;date:string;amountCents:number;currency:'CAD'|'USD';excerpt:string};
+export type InvoiceSheetRow={row:number;number:string;client:string;totalCents:number|null;paid:boolean;notes:string};
+export type ReconciliationSuggestion={
+ id:string;kind:'sent'|'payment';source:'gmail';sourceId:string;threadId:string;subject:string;from:string;date:string;excerpt:string;
+ invoiceNumbers:string[];amountCents:number|null;currency:'CAD'|'USD'|null;candidateRows:InvoiceSheetRow[];
+ match:'invoice-number'|'amount-mismatch'|'amount-and-client'|'amount-only'|'ambiguous'|'unmatched';
+ status:'open'|'confirmed'|'dismissed';resolution:string;createdAt:string;updatedAt:string;
+};
 export type InvoiceLine = {id:string;description:string;quantity:number;unitPriceCents:number;pricingProfileOverride?:PricingProfile|null};
 export type InvoiceDraft = {
  id:string;jobId:string;status:'draft'|'ready';client:string;property:string;squareFeet:string;

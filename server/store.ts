@@ -1,7 +1,7 @@
 import {DatabaseSync,backup} from 'node:sqlite';
 import {mkdirSync,chmodSync} from 'node:fs';
 import {dirname} from 'node:path';
-import type {DeletedItem,InvoiceDraft,Job,PricingProfile,Rate,RateGuidance,RawEvent,Review,ShootCategory,ShootSort,SyncState} from './types.ts';
+import type {DeletedItem,InvoiceDraft,Job,PricingProfile,Rate,RateGuidance,RawEvent,ReconciliationSuggestion,Review,ShootCategory,ShootSort,SyncState} from './types.ts';
 import {parseBooking,stableId} from './parser.ts';
 import {newInvoiceInput} from './invoicing.ts';
 import {approvedGuidance,approvedRates,legacyRates} from './approved-rates.ts';
@@ -31,6 +31,7 @@ export class Store {
    CREATE TABLE IF NOT EXISTS reference_records(dataset TEXT NOT NULL,row_number INTEGER NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(dataset,row_number));
    CREATE TABLE IF NOT EXISTS reference_imports(dataset TEXT PRIMARY KEY,source_hash TEXT NOT NULL,imported_at TEXT NOT NULL,row_count INTEGER NOT NULL);
    CREATE TABLE IF NOT EXISTS client_pricing_overrides(client_key TEXT PRIMARY KEY,profile TEXT NOT NULL CHECK(profile IN ('standard','legacy')),updated_at TEXT NOT NULL);
+   CREATE TABLE IF NOT EXISTS reconciliation_suggestions(id TEXT PRIMARY KEY,payload TEXT NOT NULL);
   `);
   for(const rate of this.rates())if(rate.minSqft===undefined||!rate.profile){const band=squareFootageBands.find(item=>item.label===rate.squareFootageRange);const migrated={...rate,profile:rate.profile||'standard',minSqft:rate.minSqft??band?.min??null,maxSqft:rate.maxSqft??band?.max??null,unit:rate.unit||'job',source:rate.source||'Earlier manual entry',note:rate.note||''};this.db.prepare('UPDATE rates SET payload=? WHERE id=?').run(JSON.stringify(migrated),rate.id);}
   const commercialVideoNames=new Map([['Short Visit (<2 hrs)','Commercial video short visit (<2 hrs)'],['Half-Day Rate (<4 hrs)','Commercial video half-day (<4 hrs)'],['Full-Day Rate (<8 hrs)','Commercial video full-day (<8 hrs)'],['15–30 sec Deliverable','Commercial video deliverable (15–30 sec)'],['30–60 sec Deliverable','Commercial video deliverable (30–60 sec)'],['60–120 sec Deliverable','Commercial video deliverable (60–120 sec)']]);
@@ -84,6 +85,9 @@ export class Store {
  restoreReview(id:string){const item=this.deletedItems().find(entry=>entry.reviewId===id);if(!item)throw new Error('Deleted item not found');this.db.prepare('DELETE FROM deleted_items WHERE review_id=?').run(id);this.audit('item-restored',id);}
  saveRate(rate:Rate){const old=this.rates().find(item=>item.profile===rate.profile&&item.category===rate.category&&item.service.toLowerCase()===rate.service.toLowerCase()&&item.squareFootageRange===rate.squareFootageRange&&item.currency===rate.currency);const overridden=old&&old.source.startsWith('2026 Q2')&&old.unitPriceCents!==rate.unitPriceCents;const next={...rate,id:old?.id||rate.id,source:overridden?'Manual override':rate.source,note:overridden?`Overrides ${old.source}. ${old.note}`.trim():rate.note};this.db.prepare('INSERT OR REPLACE INTO rates VALUES(?,?)').run(next.id,JSON.stringify(next));this.audit('rate-saved',next.id);return next;}
  syncs():SyncState[]{return (this.db.prepare('SELECT payload FROM sync').all() as {payload:string}[]).map(r=>JSON.parse(r.payload));}
+ reconciliationSuggestions():ReconciliationSuggestion[]{return (this.db.prepare('SELECT payload FROM reconciliation_suggestions ORDER BY rowid DESC').all() as {payload:string}[]).map(r=>JSON.parse(r.payload));}
+ saveReconciliationSuggestion(suggestion:ReconciliationSuggestion){const old=this.db.prepare('SELECT payload FROM reconciliation_suggestions WHERE id=?').get(suggestion.id) as {payload:string}|undefined;if(old){const existing=JSON.parse(old.payload) as ReconciliationSuggestion;if(existing.status!=='open')return false;const next={...suggestion,createdAt:existing.createdAt,status:existing.status,resolution:existing.resolution};this.db.prepare('UPDATE reconciliation_suggestions SET payload=? WHERE id=?').run(JSON.stringify(next),suggestion.id);return false;}this.db.prepare('INSERT INTO reconciliation_suggestions VALUES(?,?)').run(suggestion.id,JSON.stringify(suggestion));this.audit('reconciliation-suggested',suggestion.id);return true;}
+ resolveReconciliationSuggestion(id:string,status:'confirmed'|'dismissed',resolution:string){const old=this.reconciliationSuggestions().find(item=>item.id===id);if(!old)throw new Error('Suggestion not found.');if(old.status!=='open')throw new Error('Suggestion was already reviewed.');const next={...old,status,resolution,updatedAt:new Date().toISOString()};this.db.prepare('UPDATE reconciliation_suggestions SET payload=? WHERE id=?').run(JSON.stringify(next),id);this.audit('reconciliation-'+status,id);return next;}
  invoices():InvoiceDraft[]{return (this.db.prepare('SELECT payload FROM invoice_drafts ORDER BY rowid DESC').all() as {payload:string}[]).map(r=>this.effectiveInvoicePricing(JSON.parse(r.payload)));}
  invoice(id:string){return this.invoices().find(invoice=>invoice.id===id);}
  createInvoice(jobId:string){

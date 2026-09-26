@@ -44,6 +44,12 @@ Each calendar has independent event IDs, sync cursor, last-attempt/success times
 
 The connector authorization used by Codex cannot be exported into the app. Complete the app's own Google OAuth setup before claiming the hourly monitor is running. Nothing was scheduled as a recurring AI task.
 
+## Invoice-evidence review connection
+
+Enable the Gmail and Google Sheets APIs in the Hub's Google Cloud project. Add `gmail.readonly` and `spreadsheets.readonly` to the app's OAuth consent configuration. In the Hub, connect Gmail and the master Sheet separately as `info@jonathanfolk.ca` in Connections. The chat's Google Drive authorization cannot be used by the deployed Hub. `INVOICING_SPREADSHEET_ID` defaults to the confirmed Jonathan Folk Media Invoicing file; override it only for an intentional replacement. The sync validates `2026` headers (`Inv #`, `Client`, `Total`, `Paid`) before proposing matches.
+
+Run **Sync invoices & payments** once on Overview to establish a Gmail history cursor and scan the last 30 days. The existing server scheduler then checks changes hourly. The Review screen displays the proposals and their email/Sheet source links. Confirm and Dismiss affect the Hub review queue only. If Gmail history expires, the UI offers a 30-day rescan and warns that an older gap needs manual audit. No Stripe API connection, Gmail push subscription, Sheet writes or automatic Paid updates are included in this review-first increment. Gmail's read-only scope is restricted; resolve Google's applicable OAuth verification and security-assessment requirements before relying on unattended production use.
+
 ## Namecheap DNS for hub.jonathanfolk.ca
 
 Wait for OVH to deliver the VPS and verify its Canadian location and public IPv4. In Namecheap → Domain List → jonathanfolk.ca → Advanced DNS → Host Records, use Show More/search to check whether host `hub` already exists. If absent, Add New Record: type **A Record**, host **hub**, value **the verified OVH public IPv4**, TTL **Automatic**, then save with the checkmark. Do not enter the full hostname in Host or use a placeholder IP. If a hub record already exists, inspect it before replacing it or creating a conflicting duplicate.

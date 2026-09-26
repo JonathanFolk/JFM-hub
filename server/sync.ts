@@ -6,6 +6,7 @@ import {calendarAccessToken} from './auth.ts';
 import {collectGoogleEvents} from './calendar.ts';
 import {config} from './config.ts';
 import {calendarSources,sourceId,ensureCalendarSources,type CalendarSource} from './calendar-sources.ts';
+import {syncInvoiceEvidence} from './reconciliation.ts';
 const locks=new WeakMap<Store,Set<string>>();
 export type SyncDependencies={token:(store:Store)=>Promise<string>;collect:typeof collectGoogleEvents};
 const dependencies:SyncDependencies={token:calendarAccessToken,collect:collectGoogleEvents};
@@ -55,6 +56,9 @@ export async function scheduledTick(store:Store,sources=calendarSources(),deps=d
   const id=sourceId(source),sync=store.sync(id);const due=!sync?.lastAttempt||Date.now()-Date.parse(sync.lastAttempt)>=3600000;
   const nightly=store.getSetting('last-nightly-'+id)!==day;
   if(due)try{await syncCalendar(store,nightly,source,shared);if(nightly)store.setSetting('last-nightly-'+id,day);}catch{/* Other calendars and the backup still run. */}
+ }
+ if(store.getSetting('reconciliation-history-id')&&store.getSetting('gmail-refresh')&&store.getSetting('sheets-refresh')){
+  const state=store.sync('invoice-reconciliation');if(!state?.lastAttempt||Date.now()-Date.parse(state.lastAttempt)>=3600000)try{await syncInvoiceEvidence(store);}catch{/* Failure is recorded; manual sync remains available. */}
  }
  if(store.getSetting('last-backup')!==day){try{await dailyBackup(store);store.setSetting('last-backup',day);}catch{/* Failure recorded by dailyBackup. */}}
 }

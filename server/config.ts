@@ -7,7 +7,8 @@ export const config={
  staticDir:resolve(process.env.STATIC_DIR||'dist'),
  clientId:process.env.GOOGLE_CLIENT_ID||'',clientSecret:process.env.GOOGLE_CLIENT_SECRET||'',
  businessEmail:process.env.ALLOWED_EMAIL||'info@jonathanfolk.ca',calendarEmail:process.env.CALENDAR_EMAIL||'jcwfolk@gmail.com',
- encryptionKey:process.env.TOKEN_ENCRYPTION_KEY||'',calendarId:process.env.CALENDAR_ID||'primary'
+ encryptionKey:process.env.TOKEN_ENCRYPTION_KEY||'',calendarId:process.env.CALENDAR_ID||'primary',
+ invoicingSpreadsheetId:process.env.INVOICING_SPREADSHEET_ID||'1qr_Ip4sOVwRnpZQPysFqzgFopPVrrtOX9C5W_WZ7VW8'
 };
 export function validEncryptionKey(value=config.encryptionKey){
  return /^[A-Za-z0-9+/]{43}=$/.test(value)&&Buffer.from(value,'base64').length===32;

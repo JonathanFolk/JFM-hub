@@ -3,8 +3,8 @@ import {config} from './config.ts';
 import type {Store} from './store.ts';
 import type {EmailPriceSuggestion} from './types.ts';
 
-type GmailPart={mimeType?:string;body?:{data?:string};parts?:GmailPart[]};
-type GmailMessage={id?:string;threadId?:string;snippet?:string;payload?:GmailPart&{headers?:{name:string;value:string}[]}};
+export type GmailPart={mimeType?:string;filename?:string;body?:{data?:string};parts?:GmailPart[]};
+export type GmailMessage={id?:string;threadId?:string;labelIds?:string[];snippet?:string;payload?:GmailPart&{headers?:{name:string;value:string}[]}};
 
 function plainText(part:GmailPart|undefined):string{
  if(!part)return '';
@@ -27,7 +27,7 @@ export function extractEmailPrices(message:GmailMessage):EmailPriceSuggestion[]{
  });
 }
 
-async function gmailAccessToken(store:Store){
+export async function gmailAccessToken(store:Store){
  const secret=store.getSetting('gmail-refresh');if(!secret)throw new Error('Connect Gmail in Connections before searching for a commercial quote.');
  const response=await fetch('https://oauth2.googleapis.com/token',{method:'POST',body:new URLSearchParams({client_id:config.clientId,client_secret:config.clientSecret,refresh_token:unseal(secret),grant_type:'refresh_token'}),signal:AbortSignal.timeout(15000)});
  if(!response.ok)throw new Error('Gmail authorization expired. Reconnect in Connections.');
