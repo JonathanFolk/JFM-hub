@@ -2,20 +2,21 @@
 
 Last updated: September 25, 2026
 Repository: <https://github.com/JonathanFolk/JFM-hub>  
-Current milestone: Phase 1 hosted shadow verification; final acceptance is pending.
+Current milestone: Phase 2 controlled invoice drafting.
 
 ## Purpose
 
-JFM Hub is Jonathan Folk Media's private operations workspace. Phase 1 provides a read-only view of bookings, review items, connection health and provisional deadlines. It is designed to help Jonathan review evidence before taking financial action.
+JFM Hub is Jonathan Folk Media's private operations workspace. Phase 1 provides the hosted booking, review, connection-health and recovery foundation. Phase 2 adds private invoice drafting behind explicit human review gates.
 
-The application must not send invoices, charge clients, mark payments, edit calendars or write to the master invoicing Sheet in this phase. Hourly calendar synchronization is deterministic and makes no AI calls.
+The current Phase 2 increment must not send invoices, charge clients, mark payments, edit calendars or write to the master invoicing Sheet. “Ready” is an internal review state, not issuance. Hourly calendar synchronization and invoice arithmetic are deterministic and make no AI calls.
 
 ## Current state
 
 - The React/TypeScript frontend and Node/Express server run locally and at `https://hub.jonathanfolk.ca`.
-- The application has Overview, Jobs, Review and Connections screens.
+- The application has Overview, Jobs, Review, Invoices and Connections screens.
+- Invoice drafting stores manual line prices in integer cents, requires explicit completion/tax decisions before ready state, retains history and rejects stale overwrites. It has no external financial write path.
 - Local snapshot import, review-note persistence, calendar parsing, sync-state isolation, encrypted OAuth-token storage and SQLite backups are implemented.
-- Twenty-two automated tests, TypeScript checking, the production build and the dependency audit passed at the last verification.
+- Twenty-four automated tests, TypeScript checking and the production build pass on the Phase 2 branch; run the dependency audit before deployment.
 - Production Google sign-in is active and the application reports successful reads from all seven approved calendars.
 - The latest UI uses locally installed Gotham faces when available, with system-font fallbacks. Gotham font binaries are not committed or distributed.
 - Desktop, tablet and phone-width browser inspection passed with no horizontal overflow or application console errors on synthetic data; Jonathan's final visual acceptance and real-device accessibility checks remain.
@@ -144,10 +145,10 @@ Only the seven calendars explicitly approved by Jonathan may be monitored. The p
 
 ## Immediate next actions
 
-1. Review and resolve the live queue's ambiguous booking classifications before treating it as operational.
-2. Choose and configure an independently administered Canadian backup target; the local standalone restore test already passes.
-3. Resolve the documented OVH remote-access boundary against the strict Canada-only instruction and configure independent outage monitoring.
-4. Complete wrong-account, revoked-token, nightly reconciliation, real Safari/device, 200% zoom and screen-reader acceptance checks.
-5. Deploy the reviewed Phase 1 completion branch and run `pnpm readiness` on the host.
+1. Review the Phase 2 draft workflow and approve the private Sheet schema and invoice-number allocation rule before enabling any Sheet write.
+2. Resolve ambiguous live bookings and job-specific review items before marking their invoice drafts ready.
+3. Define approved pricing profiles and tax-decision evidence; commercial/custom and USD/US work must remain manual.
+4. Choose and configure an independently administered Canadian backup target and resolve the documented OVH processing boundary.
+5. Complete the remaining wrong-account, revoked-token, real-device, zoom and screen-reader acceptance checks.
 
 See `SETUP.md` for detailed connection/deployment notes and `VERIFICATION.md` for the latest test evidence and known limitations.

@@ -1,12 +1,12 @@
-# JFM Hub — Phase 1
+# JFM Hub — Phase 2
 
-Hosted shadow implementation, verified September 25, 2026. Phase 1 is online but has not yet completed the acceptance checklist for operational use.
+Phase 1 was accepted and merged to `main` on September 25, 2026. Phase 2 adds controlled invoice drafting while preserving the hosted calendar, review and recovery safeguards.
 
-Four screens: Overview, searchable Jobs, Review with persistent decision notes, and Connections. Monochrome responsive layout follows the supplied UI brief; its prototype instructions do not override Jonathan's approval to build the real read-only board.
+Five screens: Overview, searchable Jobs, Review with persistent decision notes, private Invoices, and Connections. Invoice drafts require explicit human decisions and remain internal to the Hub.
 
 The local September 19 import has 187 bookings, 88 review items including 13 possible missed invoices, and four ambiguous titles preserved for review. These are candidates, not proof that a shoot happened or money is owed. Snapshot ages never count as a successful live synchronization. Suggested deadlines remain provisional pending the rule/holiday review.
 
-No AI calls, calendar writes, Sheet writes, client messages, invoice issuance, payment updates or cloud deployment. No personal event descriptions or secret calendar feed URLs are stored in the app. Financial master data stays in the original Sheet. Review decisions only change the local Hub database.
+No AI calls, calendar writes, Sheet writes, client messages, invoice issuance or payment updates. Draft totals are calculated deterministically from manually entered integer-cent prices and explicit tax treatment. Financial master data stays in the original Sheet.
 
 ## Run locally
 
@@ -39,7 +39,7 @@ SQLite stores jobs keyed by source/event identity, previous versions, review dec
 
 `data/`, `backups/`, `.env` and build output are ignored by source control. These are private local records; do not publish them. Thirty daily and twelve monthly verified copies are retained. `SECONDARY_BACKUP_DIR` can point at a separately administered Canadian recovery mount; configuring the mount, independent outage monitoring and provider recovery drills remain deployment gates.
 
-See SETUP.md for Google authorization and deployment, and PHASE1_COMPLETION.md for the authoritative Phase 1 exit checklist. Phase 2 is not started.
+See SETUP.md for Google authorization and deployment, PHASE1_COMPLETION.md for the Phase 1 record, and PHASE2.md for the invoicing boundary and next increments.
 
 ## Repository privacy
 

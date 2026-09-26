@@ -12,6 +12,7 @@ import {seal,unseal,signedIn} from '../server/auth.ts';
 import {config,validateConfig,validEncryptionKey} from '../server/config.ts';
 import {dailyBackup,scheduledTick} from '../server/sync.ts';
 import type {RawEvent} from '../server/types.ts';
+import {invoiceTotals,normalizeInvoiceInput,validateInvoiceDraft} from '../server/invoicing.ts';
 const raw=(title='PP Test Client',extra:Partial<RawEvent>={}):RawEvent=>({id:'test-1',title,start:'2026-09-21T10:00:00-07:00',end:'2026-09-21T11:00:00-07:00',location:'Test property',...extra});
 test('service aliases preserve client names and never infer drone from exterior',()=>{
  assert.equal(parseBooking(raw('PP Vi Tran'),'test')?.client,'Vi Tran');
@@ -95,6 +96,21 @@ test('deadline assumptions stay provisional and honor an explicitly supplied hol
 });
 test('a new booking change reopens a previously reviewed change',()=>{
  const s=new Store(':memory:');try{s.apply('test',[raw()]);s.apply('test',[raw('PP Changed Client')]);const r=s.reviews().find(x=>x.kind==='Booking changed')!;s.resolve(r.id,'reviewed','Confirmed');s.apply('test',[raw('EP Changed Client')]);assert.equal(s.reviews().find(x=>x.id===r.id)?.status,'open');}finally{s.close();}
+});
+test('invoice drafts require explicit completion, prices, tax treatment and clear reviews',()=>{
+ const job=parseBooking(raw(), 'test')!;
+ const base=normalizeInvoiceInput({status:'ready',client:'Test Client',property:'Test property',squareFeet:'2,000 approximate',currency:'CAD',invoiceDate:'2026-09-25',dueDate:'2026-10-25',completionConfirmed:true,taxTreatment:'taxable',taxRateBps:500,taxNote:'BC GST confirmed',lines:[{id:'photos',description:'Premium photo',quantity:1,unitPriceCents:75000}],notes:''});
+ assert.deepEqual(validateInvoiceDraft(base,job,[],DateTime.fromISO('2026-09-25T12:00:00-07:00')),[]);
+ assert.deepEqual(invoiceTotals(base),{subtotalCents:75000,taxCents:3750,totalCents:78750});
+ assert.ok(validateInvoiceDraft({...base,taxTreatment:'review',taxRateBps:0},job,[],DateTime.fromISO('2026-09-25T12:00:00-07:00')).some(error=>error.includes('tax treatment')));
+ assert.ok(validateInvoiceDraft(base,job,[{id:'review',kind:'Check booking',title:'Test',detail:'Check',jobId:job.id,source:'test',status:'open',updatedAt:'now'}],DateTime.fromISO('2026-09-25T12:00:00-07:00')).some(error=>error.includes('open review')));
+});
+test('invoice draft saves preserve history and reject stale updates',()=>{
+ const s=new Store(':memory:');try{
+  s.apply('test',[raw()]);const invoice=s.createInvoice(s.jobs()[0].id);assert.equal(invoice.status,'draft');assert.equal(invoice.lines[0].unitPriceCents,0);
+  const saved=s.saveInvoice({...invoice,notes:'First private note'},invoice.updatedAt);assert.equal(s.invoices()[0].notes,'First private note');assert.equal(s.db.prepare('SELECT COUNT(*) n FROM invoice_history').get()?.n,1);
+  assert.throws(()=>s.saveInvoice({...invoice,notes:'Stale edit'},invoice.updatedAt),/another session/);
+ }finally{s.close();}
 });
 test('calendar failure preserves success time and does not prevent a backup',async()=>{
  const dir=mkdtempSync(join(tmpdir(),'jfm-scheduler-'));const original=config.backupDir;config.backupDir=dir;const s=new Store(':memory:');

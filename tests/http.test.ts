@@ -11,6 +11,7 @@ test('HTTP serves the app, excludes secrets, and rejects cross-origin changes',a
  const origin=`http://127.0.0.1:${port}`,dir=mkdtempSync(join(tmpdir(),'jfm-http-'));const seed=new Store(join(dir,'hub.sqlite'));
  const staticDir=join(dir,'dist');mkdirSync(staticDir);writeFileSync(join(staticDir,'index.html'),'<!doctype html><title>JFM Hub test</title>');
  seed.setSync({id:'google-calendar',label:'Test',mode:'live',lastAttempt:null,lastSuccess:null,snapshotAt:null,error:null,count:0,syncToken:'must-not-leak'});
+ seed.apply('test',[{id:'invoice-job',title:'PP Synthetic Client',start:'2026-09-20T10:00:00-07:00',end:'2026-09-20T11:00:00-07:00',location:'Synthetic property'}]);const invoiceJobId=seed.jobs()[0].id;
  seed.review({id:'synthetic',kind:'Check booking',title:'Synthetic client',detail:'Test only',jobId:null,source:'test',status:'open',updatedAt:new Date().toISOString()});seed.close();
  const child=spawn(process.execPath,['--import','tsx','server/index.ts'],{env:{...process.env,APP_MODE:'local',PORT:String(port),APP_ORIGIN:origin,DATA_DIR:dir,BACKUP_DIR:join(dir,'backups'),STATIC_DIR:staticDir},stdio:['ignore','pipe','pipe']});
  try{
@@ -21,10 +22,14 @@ test('HTTP serves the app, excludes secrets, and rejects cross-origin changes',a
  assert.equal((await post({Origin:'https://other.example','X-JFM-Request':'1'})).status,403);
  assert.equal((await post({Origin:origin})).status,403);
  assert.equal((await post({Origin:origin,'X-JFM-Request':'1'})).status,200);
+ const mutationHeaders={'Content-Type':'application/json',Origin:origin,'X-JFM-Request':'1'};
+ const createdResponse=await fetch(origin+'/api/invoices',{method:'POST',headers:mutationHeaders,body:JSON.stringify({jobId:invoiceJobId})});assert.equal(createdResponse.status,201);const invoice=await createdResponse.json();
+ const invalidResponse=await fetch(origin+`/api/invoices/${invoice.id}`,{method:'POST',headers:mutationHeaders,body:JSON.stringify({expectedUpdatedAt:invoice.updatedAt,draft:{...invoice,status:'ready'}})});assert.equal(invalidResponse.status,400);
+ const savedResponse=await fetch(origin+`/api/invoices/${invoice.id}`,{method:'POST',headers:mutationHeaders,body:JSON.stringify({expectedUpdatedAt:invoice.updatedAt,draft:{...invoice,status:'ready',squareFeet:'2,000 approximate',completionConfirmed:true,taxTreatment:'taxable',taxRateBps:500,taxNote:'BC GST confirmed',lines:invoice.lines.map((line:any)=>({...line,unitPriceCents:75000}))}})});assert.equal(savedResponse.status,200);
  assert.equal((await fetch(origin+'/api/unknown')).status,404);
  assert.equal((await fetch(origin+'/auth/callback?state=forged&code=forged')).status,400);
  assert.deepEqual(await (await fetch(origin+'/healthz')).json(),{ok:true});
- const stored=new Store(join(dir,'hub.sqlite'));assert.equal(stored.reviews()[0].resolution,'Synthetic review');stored.close();
+ const stored=new Store(join(dir,'hub.sqlite'));assert.equal(stored.reviews()[0].resolution,'Synthetic review');assert.equal(stored.invoices()[0].status,'ready');stored.close();
  }finally{
  const stopped=new Promise<void>(r=>child.once('exit',()=>r()));child.kill('SIGTERM');await stopped;rmSync(dir,{recursive:true,force:true});
  }

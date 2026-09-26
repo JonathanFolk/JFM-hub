@@ -18,7 +18,17 @@
 - Full assistive-technology audit, actual iPad and phone hardware checks, browser 200% zoom and longer shadow operation. Desktop Safari on the deployment Mac has been exercised successfully.
 - Thirty daily and twelve monthly integrity-checked copies are implemented. The separately administered Canadian target is supported but must still be mounted, configured and restore-tested in production.
 
-Phase 1 is a tested hosted shadow deployment, not an accepted operational rollout. Phase 2 has not started. App AI usage is zero.
+Phase 1 was technically accepted and merged to `main` on September 25, 2026. Its unresolved operational checks remain recorded in `PHASE1_COMPLETION.md`. App AI usage is zero.
+
+## Phase 2 invoice-drafting verification
+
+- Twenty-four synthetic tests pass with TypeScript checking and the production build.
+- Invoice totals use integer cents and a basis-point tax rate.
+- A ready draft requires confirmed completion, approximate square-footage review, positive line prices, explicit tax treatment with a note, and no open review item for its job.
+- Draft edits retain the prior payload in invoice history and stale edits are rejected.
+- Authenticated, same-origin HTTP creation and update are covered; invalid ready-state updates fail server-side.
+- No endpoint exists for issuance, Sheet writes, payment changes, deletion or client delivery.
+- Production deployment and hands-on invoice workflow acceptance have not yet occurred.
 
 ## September 25 hosted observation
 

@@ -5,6 +5,7 @@ import {config,validateConfig,validEncryptionKey} from './config.ts';
 import {authRoutes,signedIn} from './auth.ts';
 import {refreshCalendars,startScheduler,dailyBackup} from './sync.ts';
 import {calendarSources,ensureCalendarSources,currentJobs,sourceId} from './calendar-sources.ts';
+import {normalizeInvoiceInput,validateInvoiceDraft} from './invoicing.ts';
 validateConfig();const store=new Store(config.database);ensureCalendarSources(store);const app=express();
 app.disable('x-powered-by');app.use(express.json({limit:'20kb'}));
 app.use((req,res,next)=>{
@@ -21,10 +22,21 @@ app.get('/api/session',(req,res)=>res.json({signedIn:signedIn(req,store),local:c
 app.use('/api',(req,res,next)=>signedIn(req,store)?next():res.status(401).json({error:'Sign in to open your Hub.'}));
 app.get('/api/dashboard',(_req,res)=>{
  const active=store.getSetting('active-calendar')||'calendar-export';const jobs=currentJobs(store);const allowed=new Set(calendarSources().map(sourceId));const ids=new Set(jobs.map(j=>j.id));
- res.json({jobs,reviews:store.reviews().filter(r=>!r.jobId||ids.has(r.jobId)),connections:store.syncs().filter(s=>!s.id.startsWith('google-calendar')||allowed.has(s.id)).map(({syncToken,...state})=>state),mode:active==='calendar-export'?'snapshot':'live',snapshotNote:store.getSetting('snapshot-note'),calendarConnected:!!store.getSetting('calendar-refresh'),googleConfigured:!!config.clientId&&!!config.clientSecret&&validEncryptionKey(),secondaryBackupConfigured:!!config.secondaryBackupDir,now:new Date().toISOString(),lastBackup:store.sync('backup')?.lastSuccess||null});
+ res.json({jobs,reviews:store.reviews().filter(r=>!r.jobId||ids.has(r.jobId)),invoices:store.invoices().filter(invoice=>ids.has(invoice.jobId)),connections:store.syncs().filter(s=>!s.id.startsWith('google-calendar')||allowed.has(s.id)).map(({syncToken,...state})=>state),mode:active==='calendar-export'?'snapshot':'live',snapshotNote:store.getSetting('snapshot-note'),calendarConnected:!!store.getSetting('calendar-refresh'),googleConfigured:!!config.clientId&&!!config.clientSecret&&validEncryptionKey(),secondaryBackupConfigured:!!config.secondaryBackupDir,now:new Date().toISOString(),lastBackup:store.sync('backup')?.lastSuccess||null});
 });
 app.get('/api/jobs/:id/history',(req,res)=>res.json((store.db.prepare('SELECT at,payload FROM history WHERE job_id=? ORDER BY id DESC LIMIT 20').all(String(req.params.id)) as {at:string,payload:string}[]).map(r=>({at:r.at,job:JSON.parse(r.payload)}))));
 app.post('/api/reviews/:id',(req,res)=>{const {status,resolution}=req.body||{};if(!['reviewed','dismissed'].includes(status)||typeof resolution!=='string'||resolution.trim().length<3||resolution.length>1000)return res.status(400).json({error:'Add a short note explaining your review.'});try{store.resolve(String(req.params.id),status,resolution.trim());res.json({ok:true});}catch{res.status(404).json({error:'Review item not found.'});}});
+app.post('/api/invoices',(req,res)=>{
+ const jobId=typeof req.body?.jobId==='string'?req.body.jobId:'';if(!jobId)return res.status(400).json({error:'Choose a job for this invoice draft.'});
+ try{res.status(201).json(store.createInvoice(jobId));}catch(error){const message=error instanceof Error?error.message:'Invoice draft could not be created.';res.status(message==='Job not found'?404:409).json({error:message});}
+});
+app.post('/api/invoices/:id',(req,res)=>{
+ const old=store.invoice(String(req.params.id));if(!old)return res.status(404).json({error:'Invoice draft not found.'});
+ const job=store.jobs().find(item=>item.id===old.jobId);if(!job)return res.status(409).json({error:'The source job is no longer available.'});
+ const input=normalizeInvoiceInput(req.body?.draft),errors=validateInvoiceDraft(input,job,store.reviews().filter(review=>review.jobId===job.id&&review.status==='open'));
+ if(errors.length)return res.status(400).json({error:errors.join(' '),errors});
+ try{res.json(store.saveInvoice({...old,...input},String(req.body?.expectedUpdatedAt||'')));}catch(error){res.status(409).json({error:error instanceof Error?error.message:'Invoice draft could not be saved.'});}
+});
 app.post('/api/refresh',async(_req,res)=>{if(!store.getSetting('calendar-refresh'))return res.status(409).json({error:'This is an imported snapshot. Connect Google Calendar to refresh live bookings.'});try{res.json(await refreshCalendars(store));}catch(e){res.status(503).json({error:e instanceof Error?e.message:'Refresh failed'});}});
 app.post('/api/backup',async(_req,res)=>{try{await dailyBackup(store);res.json({ok:true});}catch{res.status(503).json({error:'Backup failed. Check disk space and permissions.'});}});
 const dist=config.staticDir;if(!existsSync(dist))throw new Error('Build the interface before starting: pnpm build');

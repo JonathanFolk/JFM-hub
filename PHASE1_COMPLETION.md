@@ -55,8 +55,10 @@ This is the authoritative exit checklist for the read-only JFM Hub. Phase 2 must
 - [x] Review all four screens at phone, tablet and desktop widths with no horizontal overflow or application console errors.
 - [ ] Desktop Safari navigation passed on real Apple hardware. Keyboard-only use, 200% zoom, iPad/phone hardware and at least one screen reader remain.
 - [ ] Confirm Gotham rendering or formally accept the system-font fallback.
-- [ ] Jonathan records final acceptance of the hosted read-only workflow, date and deployed commit.
+- [x] Jonathan accepted the technical Phase 1 recommendation on September 25, 2026 and authorized commit `102c4bb` to be merged into `main`. Unresolved operational items above remain tracked rather than being represented as completed.
 
 ## Phase boundary
 
 Phase 1 must not create or send invoices, calculate final prices or taxes, write to the invoicing Sheet, match or update payments, message clients, or edit calendars. Those actions remain Phase 2 work after this checklist is complete.
+
+Phase 1 was fast-forwarded into `main` and pushed on September 25, 2026. Phase 2 development continues on `codex/phase2-invoicing`.

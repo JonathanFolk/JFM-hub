@@ -1,8 +1,9 @@
 import {DatabaseSync,backup} from 'node:sqlite';
 import {mkdirSync,chmodSync} from 'node:fs';
 import {dirname} from 'node:path';
-import type {Job,RawEvent,Review,SyncState} from './types.ts';
+import type {InvoiceDraft,Job,RawEvent,Review,SyncState} from './types.ts';
 import {parseBooking,stableId} from './parser.ts';
+import {newInvoiceInput} from './invoicing.ts';
 export class Store {
  db:DatabaseSync;
  constructor(public path:string){
@@ -18,6 +19,8 @@ export class Store {
    CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,at TEXT NOT NULL,action TEXT NOT NULL,entity_id TEXT NOT NULL);
    CREATE TABLE IF NOT EXISTS sessions(hash TEXT PRIMARY KEY,expires INTEGER NOT NULL);
    CREATE TABLE IF NOT EXISTS oauth(state TEXT PRIMARY KEY,expires INTEGER NOT NULL,payload TEXT NOT NULL);
+   CREATE TABLE IF NOT EXISTS invoice_drafts(id TEXT PRIMARY KEY,job_id TEXT NOT NULL UNIQUE,payload TEXT NOT NULL);
+   CREATE TABLE IF NOT EXISTS invoice_history(id INTEGER PRIMARY KEY,invoice_id TEXT NOT NULL,at TEXT NOT NULL,payload TEXT NOT NULL);
   `);
  }
  getSetting(key:string){return (this.db.prepare('SELECT value FROM settings WHERE key=?').get(key) as {value:string}|undefined)?.value;}
@@ -25,6 +28,21 @@ export class Store {
  jobs():Job[]{return (this.db.prepare('SELECT payload FROM jobs').all() as {payload:string}[]).map(r=>JSON.parse(r.payload));}
  reviews():Review[]{return (this.db.prepare('SELECT payload FROM reviews').all() as {payload:string}[]).map(r=>JSON.parse(r.payload));}
  syncs():SyncState[]{return (this.db.prepare('SELECT payload FROM sync').all() as {payload:string}[]).map(r=>JSON.parse(r.payload));}
+ invoices():InvoiceDraft[]{return (this.db.prepare('SELECT payload FROM invoice_drafts ORDER BY rowid DESC').all() as {payload:string}[]).map(r=>JSON.parse(r.payload));}
+ invoice(id:string){return this.invoices().find(invoice=>invoice.id===id);}
+ createInvoice(jobId:string){
+  const existing=this.invoices().find(invoice=>invoice.jobId===jobId);if(existing)return existing;
+  const job=this.jobs().find(item=>item.id===jobId);if(!job)throw new Error('Job not found');
+  if(job.status!=='Booked')throw new Error('Only booked jobs can have an invoice draft');
+  const now=new Date().toISOString(),invoice:InvoiceDraft={id:stableId('invoice',jobId),jobId,...newInvoiceInput(job),createdAt:now,updatedAt:now};
+  this.db.prepare('INSERT INTO invoice_drafts(id,job_id,payload) VALUES(?,?,?)').run(invoice.id,jobId,JSON.stringify(invoice));this.audit('invoice-draft-created',invoice.id);return invoice;
+ }
+ saveInvoice(invoice:InvoiceDraft,expectedUpdatedAt:string){
+  const old=this.invoice(invoice.id);if(!old)throw new Error('Invoice draft not found');if(old.updatedAt!==expectedUpdatedAt)throw new Error('Invoice draft changed in another session');
+  const now=Date.now(),updatedAt=new Date(Math.max(now,Date.parse(old.updatedAt)+1)).toISOString();
+  const next={...invoice,id:old.id,jobId:old.jobId,createdAt:old.createdAt,updatedAt};
+  this.db.exec('BEGIN IMMEDIATE');try{this.db.prepare('INSERT INTO invoice_history(invoice_id,at,payload) VALUES(?,?,?)').run(old.id,next.updatedAt,JSON.stringify(old));this.db.prepare('UPDATE invoice_drafts SET payload=? WHERE id=?').run(JSON.stringify(next),old.id);this.audit(next.status==='ready'?'invoice-draft-ready':'invoice-draft-updated',old.id);this.db.exec('COMMIT');return next;}catch(error){this.db.exec('ROLLBACK');throw error;}
+ }
  sync(id:string){return this.syncs().find(s=>s.id===id);}
  setSync(state:SyncState){this.db.prepare('INSERT OR REPLACE INTO sync VALUES(?,?)').run(state.id,JSON.stringify(state));}
  audit(action:string,id:string){this.db.prepare('INSERT INTO audit(at,action,entity_id) VALUES(?,?,?)').run(new Date().toISOString(),action,id);}
