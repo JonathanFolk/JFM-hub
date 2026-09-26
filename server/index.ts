@@ -1,8 +1,7 @@
 import express from 'express';
-import {resolve} from 'node:path';
 import {existsSync} from 'node:fs';
 import {Store} from './store.ts';
-import {config,validateConfig} from './config.ts';
+import {config,validateConfig,validEncryptionKey} from './config.ts';
 import {authRoutes,signedIn} from './auth.ts';
 import {refreshCalendars,startScheduler,dailyBackup} from './sync.ts';
 import {calendarSources,ensureCalendarSources,currentJobs,sourceId} from './calendar-sources.ts';
@@ -18,21 +17,22 @@ app.use((req,res,next)=>{
 });
 authRoutes(app,store);
 app.get('/healthz',(_req,res)=>res.json({ok:true}));
-app.get('/api/session',(req,res)=>res.json({signedIn:signedIn(req,store),local:config.mode==='local',googleConfigured:!!config.clientId&&!!config.clientSecret&&!!config.encryptionKey}));
+app.get('/api/session',(req,res)=>res.json({signedIn:signedIn(req,store),local:config.mode==='local',googleConfigured:!!config.clientId&&!!config.clientSecret&&validEncryptionKey()}));
 app.use('/api',(req,res,next)=>signedIn(req,store)?next():res.status(401).json({error:'Sign in to open your Hub.'}));
 app.get('/api/dashboard',(_req,res)=>{
  const active=store.getSetting('active-calendar')||'calendar-export';const jobs=currentJobs(store);const allowed=new Set(calendarSources().map(sourceId));const ids=new Set(jobs.map(j=>j.id));
- res.json({jobs,reviews:store.reviews().filter(r=>!r.jobId||ids.has(r.jobId)),connections:store.syncs().filter(s=>!s.id.startsWith('google-calendar')||allowed.has(s.id)).map(({syncToken,...state})=>state),mode:active==='calendar-export'?'snapshot':'live',snapshotNote:store.getSetting('snapshot-note'),calendarConnected:!!store.getSetting('calendar-refresh'),googleConfigured:!!config.clientId&&!!config.clientSecret&&!!config.encryptionKey,now:new Date().toISOString(),lastBackup:store.sync('backup')?.lastSuccess||null});
+ res.json({jobs,reviews:store.reviews().filter(r=>!r.jobId||ids.has(r.jobId)),connections:store.syncs().filter(s=>!s.id.startsWith('google-calendar')||allowed.has(s.id)).map(({syncToken,...state})=>state),mode:active==='calendar-export'?'snapshot':'live',snapshotNote:store.getSetting('snapshot-note'),calendarConnected:!!store.getSetting('calendar-refresh'),googleConfigured:!!config.clientId&&!!config.clientSecret&&validEncryptionKey(),secondaryBackupConfigured:!!config.secondaryBackupDir,now:new Date().toISOString(),lastBackup:store.sync('backup')?.lastSuccess||null});
 });
 app.get('/api/jobs/:id/history',(req,res)=>res.json((store.db.prepare('SELECT at,payload FROM history WHERE job_id=? ORDER BY id DESC LIMIT 20').all(String(req.params.id)) as {at:string,payload:string}[]).map(r=>({at:r.at,job:JSON.parse(r.payload)}))));
 app.post('/api/reviews/:id',(req,res)=>{const {status,resolution}=req.body||{};if(!['reviewed','dismissed'].includes(status)||typeof resolution!=='string'||resolution.trim().length<3||resolution.length>1000)return res.status(400).json({error:'Add a short note explaining your review.'});try{store.resolve(String(req.params.id),status,resolution.trim());res.json({ok:true});}catch{res.status(404).json({error:'Review item not found.'});}});
 app.post('/api/refresh',async(_req,res)=>{if(!store.getSetting('calendar-refresh'))return res.status(409).json({error:'This is an imported snapshot. Connect Google Calendar to refresh live bookings.'});try{res.json(await refreshCalendars(store));}catch(e){res.status(503).json({error:e instanceof Error?e.message:'Refresh failed'});}});
 app.post('/api/backup',async(_req,res)=>{try{await dailyBackup(store);res.json({ok:true});}catch{res.status(503).json({error:'Backup failed. Check disk space and permissions.'});}});
-const dist=resolve('dist');if(!existsSync(dist))throw new Error('Build the interface before starting: pnpm build');
+const dist=config.staticDir;if(!existsSync(dist))throw new Error('Build the interface before starting: pnpm build');
 app.use('/api',(_req,res)=>res.status(404).json({error:'Unknown operation.'}));
 app.use(express.static(dist,{index:false,dotfiles:'deny'}));
 app.get('/{*path}',(_req,res)=>res.sendFile('index.html',{root:dist}));
 app.use((_err:unknown,_req:express.Request,res:express.Response,_next:express.NextFunction)=>res.status(500).json({error:'That operation could not finish. Your source records have not been changed.'}));
 const scheduler=startScheduler(store);
 const server=app.listen(config.port,'127.0.0.1',()=>console.log(`JFM Hub ready at ${config.origin} (${config.mode})`));
-process.on('SIGTERM',()=>{clearInterval(scheduler);server.close(()=>{store.close();process.exit(0);});});
+let stopping=false;const stop=()=>{if(stopping)return;stopping=true;clearInterval(scheduler);server.close(()=>{store.close();process.exit(0);});};
+process.on('SIGTERM',stop);process.on('SIGINT',stop);

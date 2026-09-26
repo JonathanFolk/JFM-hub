@@ -40,13 +40,14 @@ export function googleEvent(e:any):RawEvent {
  // Google event IDs remain stable for cancelled tombstones where iCalUID is absent.
  return {id:e.id,start:norm(start),end:norm(e.end?.dateTime||e.end?.date||start),title:e.summary||'',location:e.location||'',status:e.status,recurring:!!original};
 }
-export async function collectGoogleEvents(token:string,calendar:string,syncToken?:string,fetcher:typeof fetch=fetch):Promise<{events:RawEvent[];syncToken:string;full:boolean}> {
+export async function collectGoogleEvents(token:string,calendar:string,syncToken?:string,fetcher:typeof fetch=fetch,now=DateTime.now()):Promise<{events:RawEvent[];syncToken:string;full:boolean}> {
  let page:string|undefined;let cursor=syncToken;let full=!cursor;let restarted=false;let events:RawEvent[]=[];let pages=0;
+ const localNow=now.setZone('America/Vancouver');const timeMin=localNow.startOf('year').toISO()!;const timeMax=localNow.plus({years:2}).startOf('year').toISO()!;
  do {
   if(++pages>100)throw new Error('Calendar has too many pages for one run');
   const url=new URL(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar)}/events`);
   url.searchParams.set('singleEvents','true');url.searchParams.set('showDeleted','true');url.searchParams.set('maxResults','2500');
-  if(cursor)url.searchParams.set('syncToken',cursor);else {url.searchParams.set('timeMin','2026-01-01T00:00:00-08:00');url.searchParams.set('timeMax','2028-01-01T00:00:00-08:00');}
+  if(cursor)url.searchParams.set('syncToken',cursor);else {url.searchParams.set('timeMin',timeMin);url.searchParams.set('timeMax',timeMax);}
   if(page)url.searchParams.set('pageToken',page);
   const response=await fetcher(url,{headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(30000)});
   if(response.status===410&&!restarted){cursor=undefined;page=undefined;full=true;restarted=true;events=[];continue;}

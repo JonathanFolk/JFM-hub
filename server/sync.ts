@@ -30,7 +30,22 @@ export async function refreshCalendars(store:Store,sources=calendarSources(),dep
  if(failures.length)throw new Error(`Some calendars could not refresh: ${failures.join(', ')}. Check their individual connection status.`);
  return {changed,calendars:sources.length};
 }
-export async function dailyBackup(store:Store){const now=new Date().toISOString();const prior=store.sync('backup');store.setSync({id:'backup',label:'Local backup',mode:'live',lastAttempt:now,lastSuccess:prior?.lastSuccess||null,snapshotAt:null,error:null,count:prior?.count||0});try{await store.backup(join(config.backupDir,`hub-${now.slice(0,10)}.sqlite`));const files=readdirSync(config.backupDir).filter(n=>/^hub-\d{4}-\d{2}-\d{2}\.sqlite$/.test(n)).sort();for(const f of files.slice(0,-30))unlinkSync(join(config.backupDir,f));store.setSync({id:'backup',label:'Local backup',mode:'live',lastAttempt:now,lastSuccess:now,snapshotAt:null,error:null,count:Math.min(files.length,30)});}catch{store.setSync({id:'backup',label:'Local backup',mode:'live',lastAttempt:now,lastSuccess:prior?.lastSuccess||null,snapshotAt:null,error:'Backup failed. Check disk space and folder access.',count:prior?.count||0});throw new Error('Backup failed');}}
+async function backupSet(store:Store,directory:string,date:string){
+ await store.backup(join(directory,`hub-${date}.sqlite`));
+ await store.backup(join(directory,`hub-monthly-${date.slice(0,7)}.sqlite`));
+ const files=readdirSync(directory);
+ const daily=files.filter(n=>/^hub-\d{4}-\d{2}-\d{2}\.sqlite$/.test(n)).sort();for(const f of daily.slice(0,-30))unlinkSync(join(directory,f));
+ const monthly=files.filter(n=>/^hub-monthly-\d{4}-\d{2}\.sqlite$/.test(n)).sort();for(const f of monthly.slice(0,-12))unlinkSync(join(directory,f));
+ return Math.min(daily.length,30);
+}
+export async function dailyBackup(store:Store,at=new Date()){
+ const now=at.toISOString(),date=DateTime.fromJSDate(at).setZone('America/Vancouver').toISODate()!,prior=store.sync('backup');store.setSync({id:'backup',label:'Verified backup',mode:'live',lastAttempt:now,lastSuccess:prior?.lastSuccess||null,snapshotAt:null,error:null,count:prior?.count||0});
+ try{
+  const count=await backupSet(store,config.backupDir,date);
+  if(config.secondaryBackupDir)await backupSet(store,config.secondaryBackupDir,date);
+  store.setSync({id:'backup',label:'Verified backup',mode:'live',lastAttempt:now,lastSuccess:now,snapshotAt:null,error:null,count});
+ }catch{store.setSync({id:'backup',label:'Verified backup',mode:'live',lastAttempt:now,lastSuccess:prior?.lastSuccess||null,snapshotAt:null,error:'Backup failed. Check disk space and folder access.',count:prior?.count||0});throw new Error('Backup failed');}
+}
 export async function scheduledTick(store:Store,sources=calendarSources(),deps=dependencies){
  const now=DateTime.now().setZone('America/Vancouver');const day=now.toISODate()!;
  ensureCalendarSources(store,sources);

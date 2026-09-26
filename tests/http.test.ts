@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
-import {mkdtempSync,rmSync} from 'node:fs';
+import {mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createServer} from 'node:net';
@@ -9,11 +9,12 @@ import {Store} from '../server/store.ts';
 test('HTTP serves the app, excludes secrets, and rejects cross-origin changes',async()=>{
  const probe=createServer();await new Promise<void>(r=>probe.listen(0,'127.0.0.1',r));const port=(probe.address() as any).port;await new Promise<void>(r=>probe.close(()=>r()));
  const origin=`http://127.0.0.1:${port}`,dir=mkdtempSync(join(tmpdir(),'jfm-http-'));const seed=new Store(join(dir,'hub.sqlite'));
+ const staticDir=join(dir,'dist');mkdirSync(staticDir);writeFileSync(join(staticDir,'index.html'),'<!doctype html><title>JFM Hub test</title>');
  seed.setSync({id:'google-calendar',label:'Test',mode:'live',lastAttempt:null,lastSuccess:null,snapshotAt:null,error:null,count:0,syncToken:'must-not-leak'});
  seed.review({id:'synthetic',kind:'Check booking',title:'Synthetic client',detail:'Test only',jobId:null,source:'test',status:'open',updatedAt:new Date().toISOString()});seed.close();
- const child=spawn(process.execPath,['--import','tsx','server/index.ts'],{env:{...process.env,APP_MODE:'local',PORT:String(port),APP_ORIGIN:origin,DATA_DIR:dir,BACKUP_DIR:join(dir,'backups')},stdio:['ignore','pipe','pipe']});
+ const child=spawn(process.execPath,['--import','tsx','server/index.ts'],{env:{...process.env,APP_MODE:'local',PORT:String(port),APP_ORIGIN:origin,DATA_DIR:dir,BACKUP_DIR:join(dir,'backups'),STATIC_DIR:staticDir},stdio:['ignore','pipe','pipe']});
  try{
- await new Promise<void>((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error('Server startup timed out')),10000);child.stdout.on('data',()=>{clearTimeout(timeout);resolve();});child.on('exit',code=>{clearTimeout(timeout);reject(new Error('Server exited: '+code));});});
+ await new Promise<void>((resolve,reject)=>{let stderr='';const timeout=setTimeout(()=>reject(new Error('Server startup timed out: '+stderr)),10000);child.stderr.on('data',data=>stderr+=String(data));child.stdout.on('data',()=>{clearTimeout(timeout);resolve();});child.on('exit',code=>{clearTimeout(timeout);reject(new Error(`Server exited (${code}): ${stderr}`));});});
  assert.equal((await fetch(origin)).status,200);
  const dashboard=await (await fetch(origin+'/api/dashboard')).text();assert.ok(!dashboard.includes('must-not-leak'));assert.ok(!dashboard.includes('syncToken'));
  const post=(headers:Record<string,string>)=>fetch(origin+'/api/reviews/synthetic',{method:'POST',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify({status:'reviewed',resolution:'Synthetic review'})});

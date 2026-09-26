@@ -13,11 +13,26 @@ ExecStart=/usr/local/bin/node --import tsx server/index.ts
 Restart=on-failure
 RestartSec=5
 UMask=0077
+StateDirectory=jfm-hub
+StateDirectoryMode=0700
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/jfm-hub
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+# Mount the independent Canadian recovery target at the second path before enabling it.
+ReadWritePaths=/var/lib/jfm-hub -/var/lib/jfm-hub-secondary
 
 [Install]
 WantedBy=multi-user.target

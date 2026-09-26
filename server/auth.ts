@@ -2,7 +2,7 @@ import {randomBytes,createHash,createCipheriv,createDecipheriv,timingSafeEqual} 
 import {createRemoteJWKSet,jwtVerify} from 'jose';
 import type {Request,Response,Express} from 'express';
 import type {Store} from './store.ts';
-import {config} from './config.ts';
+import {config,validEncryptionKey} from './config.ts';
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
 const random=()=>randomBytes(32).toString('base64url');
 const keys=createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'));
@@ -12,13 +12,14 @@ function cookie(req:Request,name:string){return req.headers.cookie?.split(';').m
 const cookieOptions={httpOnly:true,sameSite:'lax' as const,secure:config.mode!=='local',path:'/'};
 export function signedIn(req:Request,store:Store){
  if(config.mode==='local')return true;
+ store.db.prepare('DELETE FROM sessions WHERE expires<=?').run(Date.now());
  return !!store.db.prepare('SELECT hash FROM sessions WHERE hash=? AND expires>?').get(hash(cookie(req,'jfm_session')),Date.now());
 }
 export function authRoutes(app:Express,store:Store){
  app.get('/auth/start',(req,res)=>{
   const kind=req.query.kind==='calendar'?'calendar':'login';
   if(kind==='calendar'&&!signedIn(req,store))return res.status(401).send('Sign in first');
-  if(!config.clientId||!config.clientSecret||Buffer.from(config.encryptionKey,'base64').length!==32)return res.status(503).send('Google connection setup is pending. See Settings in the Hub.');
+  if(!config.clientId||!config.clientSecret||!validEncryptionKey())return res.status(503).send('Google connection setup is pending. See Settings in the Hub.');
   const state=random(),nonce=random(),verifier=random(),binding=random();
   store.db.prepare('DELETE FROM oauth WHERE expires<?').run(Date.now());
   store.db.prepare('INSERT INTO oauth VALUES(?,?,?)').run(hash(state),Date.now()+600000,JSON.stringify({kind,nonce,verifier,binding:hash(binding)}));

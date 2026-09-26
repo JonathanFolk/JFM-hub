@@ -1,15 +1,16 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,rmSync} from 'node:fs';
+import {mkdtempSync,readdirSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
+import {DateTime} from 'luxon';
 import {parseBooking,deadline} from '../server/parser.ts';
 import {Store} from '../server/store.ts';
 import {readICS,collectGoogleEvents} from '../server/calendar.ts';
 import {seal,unseal,signedIn} from '../server/auth.ts';
-import {config,validateConfig} from '../server/config.ts';
-import {scheduledTick} from '../server/sync.ts';
+import {config,validateConfig,validEncryptionKey} from '../server/config.ts';
+import {dailyBackup,scheduledTick} from '../server/sync.ts';
 import type {RawEvent} from '../server/types.ts';
 const raw=(title='PP Test Client',extra:Partial<RawEvent>={}):RawEvent=>({id:'test-1',title,start:'2026-09-21T10:00:00-07:00',end:'2026-09-21T11:00:00-07:00',location:'Test property',...extra});
 test('service aliases preserve client names and never infer drone from exterior',()=>{
@@ -56,6 +57,11 @@ test('expired Google cursor restarts and paginates without retaining discarded r
  assert.equal(r.full,true);assert.equal(r.events.length,2);assert.equal(r.syncToken,'new-cursor');
  assert.ok(urls[0].includes('syncToken=expired'));assert.ok(!urls[1].includes('syncToken'));assert.ok(urls[2].includes('pageToken=page2'));
 });
+test('full Google synchronization uses a rolling two-year window',async()=>{
+ let request='';const fetcher=(async(url:any)=>{request=String(url);return Response.json({items:[],nextSyncToken:'cursor'});}) as typeof fetch;
+ await collectGoogleEvents('secret','primary',undefined,fetcher,DateTime.fromISO('2031-09-25T12:00:00-07:00') as DateTime<true>);
+ const url=new URL(request);assert.ok(url.searchParams.get('timeMin')?.startsWith('2031-01-01'));assert.ok(url.searchParams.get('timeMax')?.startsWith('2033-01-01'));
+});
 test('partial Google download never returns a successful snapshot',async()=>{
  let i=0;const fetcher=(async()=>++i===1?Response.json({items:[{id:'a'}],nextPageToken:'next'}):new Response('',{status:503})) as typeof fetch;
  await assert.rejects(collectGoogleEvents('secret','primary',undefined,fetcher),/could not be read/);
@@ -69,7 +75,18 @@ test('review decisions survive identical reimport and backup can be restored',as
 });
 test('tokens are authenticated encryption and production fails closed',()=>{
  const key=Buffer.alloc(32,7).toString('base64');const a=seal('private-token',key);assert.equal(unseal(a,key),'private-token');assert.notEqual(a,seal('private-token',key));const b=Buffer.from(a,'base64');b[b.length-1]^=1;assert.throws(()=>unseal(b.toString('base64'),key));
+ assert.equal(validEncryptionKey(key),true);assert.equal(validEncryptionKey('!'.repeat(44)),false);
  const s=new Store(':memory:');try{assert.equal(signedIn({headers:{}} as any,s),false);assert.throws(()=>validateConfig());}finally{s.close();}
+});
+test('configuration rejects unsafe modes, origins, ports and backup aliasing',()=>{
+ const old={mode:config.mode,origin:config.origin,port:config.port,encryptionKey:config.encryptionKey,backupDir:config.backupDir,secondaryBackupDir:config.secondaryBackupDir};
+ try{
+  config.mode='local';config.origin='http://127.0.0.1:4310';config.port=4310;config.secondaryBackupDir='';assert.doesNotThrow(validateConfig);
+  config.mode='preview';assert.throws(validateConfig,/APP_MODE/);config.mode='local';
+  config.origin='http://127.0.0.1:4310/path';assert.throws(validateConfig,/only the scheme and host/);config.origin='http://127.0.0.1:4310';
+  config.port=70000;assert.throws(validateConfig,/PORT/);config.port=4310;
+  config.secondaryBackupDir=config.backupDir;assert.throws(validateConfig,/independent/);
+ }finally{Object.assign(config,old);}
 });
 test('deadline assumptions stay provisional and honor an explicitly supplied holiday',()=>{
  assert.equal(deadline('2026-09-24T10:00:00-07:00',['Premium photo']).due,'2026-09-28');
@@ -82,6 +99,12 @@ test('a new booking change reopens a previously reviewed change',()=>{
 test('calendar failure preserves success time and does not prevent a backup',async()=>{
  const dir=mkdtempSync(join(tmpdir(),'jfm-scheduler-'));const original=config.backupDir;config.backupDir=dir;const s=new Store(':memory:');
  try{s.setSetting('calendar-refresh','invalid-encrypted-token');s.setSync({id:'google-calendar',label:'Test',mode:'live',lastAttempt:null,lastSuccess:'2026-09-18T12:00:00Z',snapshotAt:null,error:null,count:3,syncToken:'old'});await scheduledTick(s);assert.equal(s.sync('google-calendar')?.lastSuccess,'2026-09-18T12:00:00Z');assert.equal(s.sync('google-calendar')?.syncToken,'old');assert.ok(s.sync('google-calendar')?.error);assert.ok(s.sync('backup')?.lastSuccess);}finally{s.close();config.backupDir=original;rmSync(dir,{recursive:true,force:true});}
+});
+test('backup creates daily and monthly copies in both configured locations',async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'jfm-backup-')),primary=join(dir,'primary'),secondary=join(dir,'secondary');
+ const oldPrimary=config.backupDir,oldSecondary=config.secondaryBackupDir;config.backupDir=primary;config.secondaryBackupDir=secondary;const s=new Store(join(dir,'live.sqlite'));
+ try{await dailyBackup(s,new Date('2026-10-01T02:00:00Z'));await dailyBackup(s,new Date('2026-10-01T03:00:00Z'));assert.deepEqual(readdirSync(primary).sort(),['hub-2026-09-30.sqlite','hub-monthly-2026-09.sqlite']);assert.deepEqual(readdirSync(secondary).sort(),['hub-2026-09-30.sqlite','hub-monthly-2026-09.sqlite']);assert.equal(s.sync('backup')?.lastSuccess,'2026-10-01T03:00:00.000Z');}
+ finally{s.close();config.backupDir=oldPrimary;config.secondaryBackupDir=oldSecondary;rmSync(dir,{recursive:true,force:true});}
 });
 test('cancelled recurrence exception without a start becomes a reviewable tombstone',()=>{
  const events=readICS('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:cancel-series\r\nRECURRENCE-ID:20260922T170000Z\r\nSTATUS:CANCELLED\r\nEND:VEVENT\r\nEND:VCALENDAR');assert.equal(events.length,1);assert.equal(events[0].status,'cancelled');assert.equal(events[0].start,'2026-09-22T17:00:00.000Z');

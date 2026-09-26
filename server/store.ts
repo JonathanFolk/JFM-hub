@@ -56,6 +56,11 @@ export class Store {
    this.db.exec('COMMIT');return {changed,count:this.jobs().filter(j=>j.source===source).length};
   }catch(e){this.db.exec('ROLLBACK');throw e;}
  }
- async backup(path:string){mkdirSync(dirname(path),{recursive:true,mode:0o700});await backup(this.db,path);chmodSync(path,0o600);const check=new DatabaseSync(path,{readOnly:true});const valid=check.prepare('PRAGMA integrity_check').get() as Record<string,string>;check.close();if(Object.values(valid)[0]!=='ok')throw new Error('Backup verification failed');return path;}
+ async backup(path:string){
+  mkdirSync(dirname(path),{recursive:true,mode:0o700});await backup(this.db,path);
+  const check=new DatabaseSync(path);let valid:Record<string,string>;
+  try{check.exec('PRAGMA journal_mode=DELETE');valid=check.prepare('PRAGMA integrity_check').get() as Record<string,string>;}finally{check.close();}
+  chmodSync(path,0o600);if(Object.values(valid!)[0]!=='ok')throw new Error('Backup verification failed');return path;
+ }
  close(){this.db.close();}
 }

@@ -1,6 +1,6 @@
 # JFM Hub — Phase 1
 
-Local working implementation, September 19, 2026. Phase 1 is not yet accepted as a hosted/live service.
+Hosted shadow implementation, verified September 25, 2026. Phase 1 is online but has not yet completed the acceptance checklist for operational use.
 
 Four screens: Overview, searchable Jobs, Review with persistent decision notes, and Connections. Monochrome responsive layout follows the supplied UI brief; its prototype instructions do not override Jonathan's approval to build the real read-only board.
 
@@ -26,21 +26,20 @@ On this Mac, Node is bundled at `/Users/jonathanfolk/.cache/codex-runtimes/codex
 ## Verify
 
 ```sh
-pnpm check
-pnpm test
-pnpm build
-pnpm audit
+pnpm verify
 ```
 
 Tests use synthetic clients and temporary databases. The HTTP test needs permission to open a loopback port. Real export repeat-import checks are performed separately. See VERIFICATION.md for results and limitations.
+
+On a configured production host, `pnpm readiness` performs non-secret checks for the build, runtime database, seven-calendar allowlist, recent calendar successes, recent backup and independent backup target. It does not replace the human acceptance checks in `PHASE1_COMPLETION.md`.
 
 ## Data and recovery
 
 SQLite stores jobs keyed by source/event identity, previous versions, review decisions, sync metadata, audit actions, encrypted OAuth tokens, short-lived OAuth attempts and hashed sessions. The API excludes sync cursors and tokens. Imports commit atomically. Deletions remain reviewable; missing entries are not silently erased. The scheduler uses hourly deterministic API reads plus a daily full reconciliation, and independently creates daily SQLite recovery copies.
 
-`data/`, `backups/`, `.env` and build output are ignored by source control. These are private local records; do not publish them. Thirty daily local backups are retained. Off-machine backup, monthly retention, independent outage monitoring and provider recovery drills remain deployment gates.
+`data/`, `backups/`, `.env` and build output are ignored by source control. These are private local records; do not publish them. Thirty daily and twelve monthly verified copies are retained. `SECONDARY_BACKUP_DIR` can point at a separately administered Canadian recovery mount; configuring the mount, independent outage monitoring and provider recovery drills remain deployment gates.
 
-See SETUP.md for Google authorization and the Canadian hosting proposal. Phase 2 is not started.
+See SETUP.md for Google authorization and deployment, and PHASE1_COMPLETION.md for the authoritative Phase 1 exit checklist. Phase 2 is not started.
 
 ## Repository privacy
 

@@ -3,7 +3,7 @@
 ## Passed locally
 
 - TypeScript strict check and production frontend build.
-- Fourteen automated tests: service/client boundaries; contractor For J gate; held/cancelled states; repeat imports; moved-event history; transactional rollback; recurring exceptions; cancelled recurrence tombstones; Google expired-cursor reset/pagination; failed partial downloads; review persistence/reopening; encryption tamper detection; production configuration fails closed; backup restore; backup proceeds despite calendar failure; HTTP source-origin checks, secret omission and invalid OAuth state rejection. Several tests cover multiple assertions.
+- Twenty-two automated tests: service/client boundaries; contractor For J gate; held/cancelled states; repeat imports; moved-event history; transactional rollback; recurring exceptions; cancelled recurrence tombstones; Google expired-cursor reset/pagination and rolling full-sync window; failed partial downloads; review persistence/reopening; encryption tamper detection; strict production configuration; backup restore, independent-target copies and repeat same-day backup; calendar-failure isolation; HTTP source-origin checks, secret omission and invalid OAuth state rejection. Several tests cover multiple assertions.
 - Real export import repeated with **187 jobs, 0 changed jobs, 88 review items** on the final repeat. No financial source writes. Four ambiguous audit titles remain standalone review items.
 - Local backup created from the UI and checked for integrity. Synthetic restored database preserved job count and review note. This is not an off-machine disaster-recovery drill.
 - Final dependency audit: **0 reported advisories** across all severity levels, after Vite, csv-parse and esbuild patches. This is a dependency advisory check, not a security certification.
@@ -16,13 +16,22 @@
 - Hosted Canadian residency/processing terms, provider account, hostname/TLS, off-machine backups, independent outage alert and provider restore.
 - Human-approved answer key, deadline grid and holiday policy. No 95% parsing-accuracy claim is made; business uncertainty remains visible.
 - Full assistive-technology audit, actual iPad/Safari and phone hardware checks, browser 200% zoom and longer shadow operation.
-- Thirty daily local copies are implemented; twelve monthly copies and independent Canadian storage remain future deployment work.
+- Thirty daily and twelve monthly integrity-checked copies are implemented. The separately administered Canadian target is supported but must still be mounted, configured and restore-tested in production.
 
-Phase 1 is a tested local preview, not a completed production rollout. Phase 2 has not started. App AI usage is zero.
+Phase 1 is a tested hosted shadow deployment, not an accepted operational rollout. Phase 2 has not started. App AI usage is zero.
+
+## September 25 hosted observation
+
+- The OVHcloud account shows an active VPS-1 2027 in Beauharnois, Canada (`os-bhs6`) with Ubuntu 24.04, 2 vCores, 4 GB RAM and 40 GB storage.
+- `hub.jonathanfolk.ca` resolves publicly and serves a valid Let's Encrypt certificate through Caddy with HSTS, CSP, no-store, no-referrer, frame-denial and MIME-sniffing protections.
+- An unauthenticated request to `/api/dashboard` returns HTTP 401.
+- The signed-in Connections screen reports all seven approved calendars current, with successful refresh timestamps, and shows a successful local backup.
+- The service runs as unprivileged user `jfm`; `/etc/jfm-hub.env` is root-owned mode 600; the app port listens only on loopback; UFW exposes only SSH/HTTP/HTTPS; SSH is key-only with root login disabled; and the active Caddy configuration contains no access-log handler.
+- This does not prove wrong-account rejection, unattended refresh longevity, access-log settings, off-machine recovery, provider processing boundaries or accessibility acceptance.
 
 ## Seven-calendar update
 
-19 tests now pass, adding explicit calendar selection validation, independent per-calendar IDs/cursors, idempotent multi-calendar resync, failure isolation, titleless contractor cancellations and unknown For J naming review. Connector identity and read access to all seven were verified. The app itself remains on exports pending OAuth setup; no actual scheduled multi-calendar success is claimed.
+Twenty-two tests now pass, including explicit calendar selection validation, independent per-calendar IDs/cursors, idempotent multi-calendar resync, failure isolation, titleless contractor cancellations, unknown For J naming review, rolling full-sync bounds, strict deployment configuration and standalone daily/monthly backups. Production OAuth and reads from all seven calendars are operating. A longer unattended run, revoked-token recovery and the next observed nightly reconciliation are still required.
 
 ### September 20 — studio UI refresh
 TypeScript check and Vite production build pass. CSS/JSX changes only: spacing, Gotham local font faces, responsive panels and natural numeric display. No business rules, source data or external writes changed. Native-browser visual inspection attempted and blocked by administrator-policy verification; no workaround used. Font rendering and screenshot review remain pending.

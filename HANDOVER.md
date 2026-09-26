@@ -1,8 +1,8 @@
 # JFM Hub handover
 
-Last updated: September 21, 2026  
+Last updated: September 25, 2026
 Repository: <https://github.com/JonathanFolk/JFM-hub>  
-Current milestone: Phase 1 local preview; production deployment is pending.
+Current milestone: Phase 1 hosted shadow verification; final acceptance is pending.
 
 ## Purpose
 
@@ -12,14 +12,14 @@ The application must not send invoices, charge clients, mark payments, edit cale
 
 ## Current state
 
-- The React/TypeScript frontend and Node/Express server run locally.
+- The React/TypeScript frontend and Node/Express server run locally and at `https://hub.jonathanfolk.ca`.
 - The application has Overview, Jobs, Review and Connections screens.
 - Local snapshot import, review-note persistence, calendar parsing, sync-state isolation, encrypted OAuth-token storage and SQLite backups are implemented.
-- Nineteen automated tests, TypeScript checking and the production build passed at the last verification.
-- Seven approved calendars were confirmed readable through Jonathan's Google connection, but the application itself does not yet have production OAuth credentials.
+- Twenty-two automated tests, TypeScript checking, the production build and the dependency audit passed at the last verification.
+- Production Google sign-in is active and the application reports successful reads from all seven approved calendars.
 - The latest UI uses locally installed Gotham faces when available, with system-font fallbacks. Gotham font binaries are not committed or distributed.
-- The redesign has not received a final visual browser review because browser policy verification blocked automated inspection.
-- The OVHcloud VPS order was still processing at the last check. No server deployment, DNS change or production data upload has occurred.
+- Desktop, tablet and phone-width browser inspection passed with no horizontal overflow or application console errors on synthetic data; Jonathan's final visual acceptance and real-device accessibility checks remain.
+- The active OVHcloud VPS is VPS-1 2027 with 2 vCores, 4 GB RAM, 40 GB storage and Ubuntu 24.04 in Beauharnois, Canada. DNS, Caddy HTTPS and the application are live. Provider-boundary, independent-backup and recovery evidence remain incomplete.
 
 ## Privacy and operating boundaries
 
@@ -74,9 +74,9 @@ Local mode binds only to `127.0.0.1` and intentionally bypasses sign-in. Do not 
 
 To import a private reference snapshot, set `CALENDAR_EXPORT` and `PHASE0_DIR` outside the repository before running `pnpm import`. Optional invoice-register audit notes are read from the ignored `data/register-notes.json` or `REGISTER_NOTES_FILE`.
 
-## Google setup still required
+## Google configuration and remaining acceptance
 
-Create a Google Cloud project named **JFM Hub** under Jonathan's business account, then:
+The production OAuth client and calendar connection are operating. Preserve the following configuration if the client is recreated or local OAuth testing is added:
 
 1. Enable the Google Calendar API.
 2. Configure the Google Auth Platform for an external audience because the booking account is a personal Gmail account.
@@ -86,7 +86,7 @@ Create a Google Cloud project named **JFM Hub** under Jonathan's business accoun
 6. Add `https://hub.jonathanfolk.ca/auth/callback` only after production HTTPS works.
 7. Store the client ID, secret and a separately generated 32-byte token-encryption key in the private environment file.
 
-The Codex/ChatGPT Google connection cannot be reused by the hosted application. Real OAuth sign-in, wrong-account rejection, reconnect behavior and unattended token refresh remain acceptance tests.
+The Codex/ChatGPT Google connection cannot be reused by the hosted application. Production sign-in and calendar reads are visibly working; wrong-account rejection, revoked-token reconnect behavior and unattended refresh over a longer shadow period remain acceptance tests.
 
 ## Approved calendar behavior
 
@@ -144,9 +144,10 @@ Only the seven calendars explicitly approved by Jonathan may be monitored. The p
 
 ## Immediate next actions
 
-1. Finish the Google Cloud project and OAuth client setup.
-2. Recheck OVHcloud order provisioning and record the VPS region, operating system and IPv4.
-3. Perform a human visual review of the latest local UI, especially spacing, Gotham rendering and mobile layout.
-4. Deploy only after the Canadian-data checks pass.
+1. Review and resolve the live queue's ambiguous booking classifications before treating it as operational.
+2. Configure and restore-test the independently administered Canadian backup target.
+3. Verify provider/support/subprocessor boundaries and configure independent outage monitoring.
+4. Complete wrong-account, revoked-token, nightly reconciliation, real Safari/device, 200% zoom and screen-reader acceptance checks.
+5. Deploy the reviewed Phase 1 completion branch and run `pnpm readiness` on the host.
 
 See `SETUP.md` for detailed connection/deployment notes and `VERIFICATION.md` for the latest test evidence and known limitations.
