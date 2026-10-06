@@ -2,6 +2,16 @@
 
 Jonathan authorized deployment of the reviewed local update on October 5.
 
+## Latest: responsive layout repair
+
+- Deployed **`639395b`** to https://hub.jonathanfolk.ca on October 5, 2026; source pushed to `origin/codex/phase2-invoicing`.
+- Local and staged Linux `pnpm verify` passed: 89 tests, TypeScript, production build and dependency audit. Eight browser regression widths passed before release.
+- Frontend-only release: copied content-hashed assets first, then atomically switched `dist/index.html`. Retained prior assets for open clients. No service restart (PID 100362), migrations or data imports.
+- HTTPS health passed, signed-out dashboard remained 401, and live JS/CSS hashes matched the verified local build. Authenticated browser verification of Katie Burkard's April 25 row confirmed readable content, evidence below the content and no page overflow.
+- Before/after hashes matched for all jobs (273), reviews (158), drafts (11), invoice history (1), completions (107), deleted records (30), rates (98) and classifications (11).
+- UI rollback: restore the index from `/opt/jfm-hub-dist-before-639395b` with an atomic file replacement; old assets remain available. Previous server source was `df645fb`. **Do not restore a database backup for this UI-only rollback.**
+- Existing Google Calendar connection warnings remain separate from this layout fix.
+
 ## Release scope
 
 - Centered, spacious dialogs; invoice draft autosave and 5% GST default with an off toggle.

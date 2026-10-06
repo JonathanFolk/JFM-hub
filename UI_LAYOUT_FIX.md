@@ -1,6 +1,6 @@
 # Responsive layout repair — October 5, 2026
 
-Status: implemented and verified locally; not deployed.
+Status: deployed as `639395b` on October 5, 2026. Live April 25 booking visually verified; evidence and actions remain below readable booking content with no page overflow. See `DEPLOYMENT_OCT05.md` for release and rollback details.
 
 ## Cause and correction
 
