@@ -1,5 +1,12 @@
 # Hub quality-of-life release — October 5, 2026
 
+## October 6 individual selection correction
+
+- Deployed frontend release **`acc8c9f`** after Jonathan clarified that each Review and Invoice entry must be selectable. Each entry now has a visible checkbox; clicking its row also selects it. A separate View button opens details. The Review bulk controls sit directly above the selectable list, below email evidence.
+- The isolated release passed TypeScript, 92 tests and a production build. Individual Review and Invoice selection was checked in the working preview, including the selected count and row styling. The signed-in live site shows the per-entry controls in both panels.
+- Copied the new hashed assets before atomically switching `dist/index.html`. The previous full `dist` directory is `/opt/jfm-hub-dist-before-acc8c9f`; restore its index for a frontend rollback. Existing assets remain available for open clients. No service restart, database migration, or record mutation occurred.
+- Public JS/CSS hashes match the verified build. HTTPS health and signed-out HTTP 401 passed. The service retained the same PID with zero restarts; database integrity and counts remained unchanged.
+
 ## October 6 bulk actions
 
 - Deployed code release **`e868a27`** to https://hub.jonathanfolk.ca and pushed it to `origin/codex/phase2-invoicing`. Review and Invoices now support selecting visible items, moving selected shoots to Complete after a unique live 2026 master Sheet match, and recoverable bulk deletion. An unmatched completion batch changes nothing; the Sheet remains read-only.
