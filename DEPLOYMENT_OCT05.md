@@ -50,3 +50,12 @@ Stop `jfm-hub`, preserve the post-deployment database and its WAL/SHM before any
 - Backup: `/var/lib/jfm-hub/backups/deploy-13d2b46/before.sqlite`. Previous complete release: `/opt/jfm-hub-before-ui-13d2b46` (`7a9acd1`). The existing rollback procedure above applies with these paths.
 - Post-deployment HTTPS health, production mode, signed-out dashboard protection and byte-for-byte JS/CSS asset checks passed. Database integrity passed; all 273 bookings, 158 reviews, 11 drafts, invoice history, 98 rates, classifications, trash and completion records were unchanged by the deployment.
 - This release contains no server logic or database migration changes. It does not migrate preview completions or change the previously documented Google connection/secondary-backup limitations.
+
+## Appointment dates and legacy cancellation cleanup
+
+- Jonathan authorized deployment of **`38601e9`**. Added stacked appointment-date badges with Gotham Book numbers, address subtext in booking dialogs, and the one-time legacy cancellation cleanup.
+- Local and staged Linux `pnpm verify` passed: 80 tests, type checks, production build and dependency audit. No preview database or private completion evidence was shipped.
+- Rehearsed the migration on a private copy of the current production database before switching. Stopped the service for the final integrity-checked backup at `/var/lib/jfm-hub/backups/deploy-38601e9/before.sqlite`. Previous complete release: `/opt/jfm-hub-before-38601e9` (`13d2b46`). Use the rollback procedure above with these paths.
+- **30 previously cancelled live bookings**, including Ffirth on September 19, moved to recoverable Recently Deleted. Verified that booking payloads, invoice drafts, invoice history, completion records, rates, classifications and pre-existing settings were unchanged. Existing review records remain stored but are hidden from active views for trashed jobs.
+- Live service is active with zero restarts. HTTPS health, production/preview-disabled mode, signed-out dashboard protection, database integrity and byte-for-byte deployed JS/CSS checks passed. No fresh authenticated browser acceptance or Google reconnection was performed.
+- Calendar authorization still needs reconnection for future synchronization. This release does not fix the prior Sheet connection issue or configure an independent secondary backup.
