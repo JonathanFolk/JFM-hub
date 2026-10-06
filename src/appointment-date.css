@@ -15,7 +15,12 @@
 .job-row .job-date>small{margin:0;font-size:.7rem;white-space:nowrap}
 .agenda-row>.appointment-date{margin-right:4px}
 .invoice-dated-row{gap:20px}.invoice-dated-row>.invoice-subject{min-width:0;flex:1}
-.completed-dated-row{grid-template-columns:64px minmax(0,1fr) auto;gap:24px;align-items:start}
+.completed-dated-row{grid-template-columns:64px minmax(0,1fr);gap:16px 24px;align-items:start}
+.completed-content{min-width:0;overflow-wrap:anywhere}
+.completed-footer{grid-column:2;min-width:0;display:grid;gap:16px}
+.completed-evidence{display:flex;flex-wrap:wrap;gap:8px 16px;min-width:0;font-size:.8125rem}
+.completed-evidence a{max-width:100%;overflow-wrap:anywhere;line-height:1.7}
+.completed-footer .actions{min-width:0;flex-wrap:wrap}
 @media(min-width:768px) and (max-width:1023px){.review-table-head,.review-table-row{grid-template-columns:100px 64px minmax(0,2fr) minmax(70px,1fr) 75px 16px;gap:10px}}
 @media(max-width:767px){
  .review-table-head{display:none}
@@ -32,5 +37,5 @@
  .invoice-dated-row>.invoice-subject{grid-column:2;grid-row:1}
  .invoice-dated-row>.row-end{grid-column:2;grid-row:2;justify-content:flex-start;font-size:.75rem}
  .completed-dated-row{grid-template-columns:64px minmax(0,1fr);gap:16px}
- .completed-dated-row>.actions{grid-column:2;min-width:0}
+ .completed-footer{grid-column:1/-1}
 }

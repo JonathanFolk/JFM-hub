@@ -10,6 +10,7 @@
     "backup": "tsx scripts/backup.ts",
     "test": "tsx --test tests/*.test.ts",
     "check": "tsc --noEmit",
+    "test:layout": "tsx scripts/layout-check.tsx",
     "verify": "pnpm check && pnpm test && pnpm build && pnpm audit",
     "readiness": "tsx scripts/readiness.ts"
   },

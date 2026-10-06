@@ -2,6 +2,8 @@
 
 ## Unreleased quality-of-life preview
 
+The [responsive layout repair](UI_LAYOUT_FIX.md) fixes multi-invoice Complete rows collapsing into vertical text and tablet Jobs heading alignment. It is verified locally and awaiting deployment. Before future layout releases, run `pnpm test:layout` and verify all eight browser-width checks pass, in addition to `pnpm verify`.
+
 The October 5 follow-up release includes appointment-date badges, address subtext in booking dialogs, and a one-time startup cleanup for Google bookings already stored as **Cancelled** before automatic cancellation handling existed, including appointments outside the sync window. They move out of Jobs/Review into recoverable Recently Deleted. Invoice drafts, completed records and linked financial records remain protected for cancellation review; prior manual restores are respected. This does not trash TBR/held bookings or treat missing events as proof of cancellation, and does not reconnect Google.
 
 Preview verification: 29 previously cancelled bookings, including Ffirth on September 19, moved to Recently Deleted. Invoice drafts, invoice history and completion records were unchanged. Recovery copy: `data/local-preview/before-legacy-cancellation-cleanup-v1.sqlite`. **Deployed as `38601e9`** after a separate production-data rehearsal and backup: 30 live cancelled bookings moved to Recently Deleted, with financial records preserved. See the deployment record for recovery paths.

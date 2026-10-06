@@ -1,0 +1,28 @@
+/* Intrinsic-width controls must not crowd variable-length user content.
+   Keep this after the view styles; do not conceal overflow with clipping. */
+.connection>div,.connection dl,.connection dl>div,.settings-grid>section,
+.page-heading>div,.job-row>span,.review-subject,.evidence-panel>div{min-width:0;overflow-wrap:anywhere}
+.actions,.evidence-actions{min-width:0;max-width:100%;flex-wrap:wrap}
+.actions>a,.actions>button,.evidence-actions>button{max-width:100%;overflow-wrap:anywhere;white-space:normal}
+.rate-row,.suggestion-row{flex-wrap:wrap}
+.rate-row>span:first-child,.suggestion-row>span:first-child{flex:1 1 220px;min-width:0;overflow-wrap:anywhere}
+.rate-variant-select{flex:1 1 260px;min-width:0}
+.rate-variant-select select{min-width:0;max-width:100%}
+.deleted-row>span{min-width:0;overflow-wrap:anywhere}
+.deleted-row>button{flex-shrink:0}
+.invoice-subject small,.review-subject small{overflow-wrap:anywhere}
+.evidence-panel{flex-wrap:wrap}
+.evidence-panel>div:first-child{flex:1 1 320px}
+@media(min-width:768px) and (max-width:1199px){
+ /* Hide the due column, not the Services heading, and use the same four tracks. */
+ .job-table .table-head,.job-table .job-row{grid-template-columns:100px 80px minmax(0,2fr) minmax(0,1fr)}
+ .job-table .table-head>span:nth-child(4){display:block}
+ .job-table .table-head>span:nth-child(5),.job-table .job-due{display:none}
+}
+@media(max-width:767px){
+ .evidence-panel>div:first-child{flex-basis:auto}
+ .connection:not(.completed-dated-row){grid-template-columns:minmax(0,1fr)}
+ .connection:not(.completed-dated-row) dl{grid-column:1;grid-row:auto}
+ .connection:not(.completed-dated-row)>.status{justify-self:start}
+ .invoice-dated-row>.row-end{white-space:normal;flex-wrap:wrap;min-width:0}
+}
