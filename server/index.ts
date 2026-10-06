@@ -13,6 +13,7 @@ import {commercialEmailPrices} from './gmail.ts';
 import {syncInvoiceEvidence} from './reconciliation.ts';
 import {pricingQuestions,referenceForClient} from './reference.ts';
 import {normalizeSortDetails} from './workflow.ts';
+import {readCompletionSheet} from './invoicing-sheet.ts';
 validateConfig();const store=new Store(config.database);ensureCalendarSources(store);const app=express();
 app.disable('x-powered-by');app.use(express.json({limit:'20kb'}));
 app.use((req,res,next)=>{
@@ -50,6 +51,8 @@ app.post('/api/complete/:id/reopen',(req,res)=>{try{store.reopenJob(String(req.p
 app.post('/api/catalogue/undo',(req,res)=>{try{store.undoCatalogue(String(req.body?.token||''));res.json({ok:true});}catch(error){res.status(409).json({error:error instanceof Error?error.message:'Could not undo selection.'});}});
 app.post('/api/reviews/:id/delete',(req,res)=>{try{store.deleteReview(String(req.params.id));res.json({ok:true});}catch(error){res.status(409).json({error:error instanceof Error?error.message:'Could not move this item to Recently Deleted.'});}});
 app.post('/api/jobs/:id/delete',(req,res)=>{try{store.deleteJob(String(req.params.id));res.json({ok:true});}catch(error){res.status(409).json({error:error instanceof Error?error.message:'Could not move this shoot to Recently Deleted.'});}});
+app.post('/api/bulk/delete',(req,res)=>{const {kind,ids}=req.body||{};if(!['reviews','invoices'].includes(kind)||!Array.isArray(ids))return res.status(400).json({error:'Choose Review or Invoices and select items.'});try{res.json({count:store.bulkDelete(kind,ids)});}catch(error){res.status(409).json({error:error instanceof Error?error.message:'Could not move the selected items to Recently Deleted.'});}});
+app.post('/api/bulk/complete',async(req,res)=>{const {kind,ids}=req.body||{};if(!['reviews','invoices'].includes(kind)||!Array.isArray(ids)||!ids.length||ids.length>200||ids.some((id:unknown)=>typeof id!=='string'))return res.status(400).json({error:'Select 1 to 200 Review or Invoice items.'});try{const sheet=await readCompletionSheet(store);res.json({count:store.bulkComplete(kind,ids,sheet)});}catch(error){res.status(409).json({error:error instanceof Error?error.message:'Could not verify the selected shoots in the master Sheet.'});}});
 app.post('/api/deleted/:id/restore',(req,res)=>{try{store.restoreReview(String(req.params.id));res.json({ok:true});}catch(error){res.status(404).json({error:error instanceof Error?error.message:'Deleted item not found.'});}});
 app.post('/api/rates',(req,res)=>{try{const id=typeof req.body?.id==='string'?req.body.id:'';const existing=id?store.rates().find(rate=>rate.id===id):undefined;if(id&&!existing)return res.status(404).json({error:'Rate not found.'});res.json(store.saveRate(normalizeRate(req.body,existing)));}catch(error){res.status(400).json({error:error instanceof Error?error.message:'Invalid rate.'});}});
 app.get('/api/reference/pricing-questions',(_req,res)=>res.json({questions:pricingQuestions(store),imports:store.referenceImports()}));

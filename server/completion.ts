@@ -29,6 +29,15 @@ export function paidCompletionMatches(jobs:Job[],rows:MasterRow[],now:DateTime=D
  })};});
  return pairs.filter(p=>p.job.status!=='Cancelled'&&p.rows.length===1&&p.rows[0].paid&&!/\b(?:partial|deposit|rebill|relicens|cancel)/i.test(p.rows[0].notes+' '+p.rows[0].orders)&&pairs.filter(other=>other.rows.some(r=>r.row===p.rows[0].row)).length===1).map(p=>({jobId:p.job.id,row:p.rows[0],basis:'Paid checkbox checked; unique exact client + normalized full street/unit address; invoice dated on/after shoot within 90 days.'}));
 }
+export function sheetCompletionMatches(jobs:Job[],rows:MasterRow[],now:DateTime=DateTime.now()){
+ const eligible=jobs.filter(j=>!j.floorPlanSource&&!j.supportingJobId&&j.status==='Booked'&&DateTime.fromISO(j.start)<=now);
+ const pairs=eligible.map(job=>({job,rows:rows.filter(row=>{
+  const days=DateTime.fromISO(row.date).diff(DateTime.fromISO(job.start).setZone('America/Vancouver').startOf('day'),'days').days;
+  const address=completionAddress(job.location);
+  return !!address&&!!clientKey(job.client)&&clientKey(job.client)===clientKey(row.client)&&address.key===completionAddress(row.notes)?.key&&days>=0&&days<=90&&DateTime.fromISO(row.date)<=now;
+ })}));
+ return pairs.filter(pair=>pair.rows.length===1&&pair.rows[0].totalCents>0&&!/\b(?:partial|deposit|rebill|relicens|cancel)\b/i.test(pair.rows[0].notes+' '+pair.rows[0].orders)&&pairs.filter(other=>other.rows.some(row=>row.row===pair.rows[0].row)).length===1).map(pair=>({jobId:pair.job.id,row:pair.rows[0],basis:'Unique exact client and full street/unit address in the live 2026 master Sheet; invoice dated on/after shoot within 90 days. Payment status remains separate.'}));
+}
 export function completionMatches(jobs:Job[],rows:MasterRow[],now=DateTime.now()){
  const eligible=jobs.filter(j=>!j.floorPlanSource&&!j.supportingJobId&&j.status!=='Cancelled'&&DateTime.fromISO(j.start)<=now);
  const pairs=eligible.map(job=>{const key=streetKey(job.location);return {job,rows:rows.filter(row=>{const days=DateTime.fromISO(row.date).diff(DateTime.fromISO(job.start).setZone('America/Vancouver').startOf('day'),'days').days;return clientKey(job.client)===clientKey(row.client)&&/\d/.test(key)&&key.length>6&&streetKey(row.notes)===key&&days>=0&&days<=90;})};});

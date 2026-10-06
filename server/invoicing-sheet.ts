@@ -2,6 +2,7 @@ import {sheetsAccessToken} from './auth.ts';
 import {config} from './config.ts';
 import type {Store} from './store.ts';
 import type {InvoiceSheetRow} from './types.ts';
+import {masterRows} from './completion.ts';
 
 export function sheetReadError(status:number,body:unknown){
  const error=(body as any)?.error;const reasons=[error?.status,...(Array.isArray(error?.errors)?error.errors.map((e:any)=>e.reason):[]),...(Array.isArray(error?.details)?error.details.map((e:any)=>e.reason):[])].filter(x=>typeof x==='string').join(' ');
@@ -33,4 +34,21 @@ export async function readInvoiceSheet(store:Store):Promise<InvoiceSheetRow[]>{
  const response=await fetch(url,{headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(30000)});
  if(!response.ok)throw new Error(sheetReadError(response.status,await response.json().catch(()=>null)));
  const body=await response.json() as {values?:unknown[][]};return parseInvoiceSheet(body.values||[]);
+}
+export async function readCompletionSheet(store:Store){
+ if(!store.getSetting('sheets-refresh'))throw new Error('Connect the master Sheet in Connections first.');
+ // Validate the same 2026 tab headers used by invoice reconciliation before matching rows.
+ await readInvoiceSheet(store);
+ const token=await sheetsAccessToken(store),spreadsheetId=config.invoicingSpreadsheetId;
+ const valuesUrl=new URL(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent("'2026'!C7:K")}`);
+ valuesUrl.searchParams.set('valueRenderOption','UNFORMATTED_VALUE');
+ const metadataUrl=new URL(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}`);
+ metadataUrl.searchParams.set('fields','sheets(properties(sheetId,title))');
+ const [valuesResponse,metadataResponse]=await Promise.all([fetch(valuesUrl,{headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(30000)}),fetch(metadataUrl,{headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(30000)})]);
+ if(!valuesResponse.ok)throw new Error(sheetReadError(valuesResponse.status,await valuesResponse.json().catch(()=>null)));
+ if(!metadataResponse.ok)throw new Error(sheetReadError(metadataResponse.status,await metadataResponse.json().catch(()=>null)));
+ const values=await valuesResponse.json() as {values?:unknown[][]},metadata=await metadataResponse.json() as {sheets?:{properties?:{sheetId?:number;title?:string}}[]};
+ const gid=metadata.sheets?.find(sheet=>sheet.properties?.title==='2026')?.properties?.sheetId;
+ if(!Number.isInteger(gid))throw new Error('Could not verify the 2026 master Sheet tab.');
+ return {rows:masterRows(values.values||[]),spreadsheetId,gid:gid!,readAt:new Date().toISOString()};
 }

@@ -9,7 +9,8 @@ import {squareFootageBands,imagePackages} from './types.ts';
 import {automaticPricing,clientOverrideKey} from './reference.ts';
 import {areaRange,extractArea,isUnconfirmed,explicitAddons,commercialLines,samePropertyDay,serviceQuantity} from './workflow.ts';
 import {rateSuggestions} from './rates.ts';
-import type {Completion} from './completion.ts';
+import {sheetCompletionMatches} from './completion.ts';
+import type {Completion,MasterRow} from './completion.ts';
 export class Store {
  db:DatabaseSync;
  constructor(public path:string){
@@ -149,6 +150,29 @@ export class Store {
  saveRate(rate:Rate){const old=this.rates().find(item=>item.profile===rate.profile&&item.category===rate.category&&item.service.toLowerCase()===rate.service.toLowerCase()&&item.squareFootageRange===rate.squareFootageRange&&item.currency===rate.currency);const overridden=old&&old.source.startsWith('2026 Q2')&&old.unitPriceCents!==rate.unitPriceCents;const next={...rate,id:old?.id||rate.id,source:overridden?'Manual override':rate.source,note:overridden?`Overrides ${old.source}. ${old.note}`.trim():rate.note};this.db.prepare('INSERT OR REPLACE INTO rates VALUES(?,?)').run(next.id,JSON.stringify(next));this.audit('rate-saved',next.id);return next;}
  syncs():SyncState[]{return (this.db.prepare('SELECT payload FROM sync').all() as {payload:string}[]).map(r=>JSON.parse(r.payload));}
  reconciliationSuggestions():ReconciliationSuggestion[]{return (this.db.prepare('SELECT payload FROM reconciliation_suggestions ORDER BY rowid DESC').all() as {payload:string}[]).map(r=>JSON.parse(r.payload));}
+ bulkDelete(kind:'reviews'|'invoices',ids:string[]){
+  if(!ids.length||ids.length>200||new Set(ids).size!==ids.length||ids.some(id=>typeof id!=='string'||!id))throw new Error('Choose 1 to 200 distinct items.');
+  const reviews=this.reviews(),invoices=this.invoices(),deleted=this.deletedJobIds(),deletedReviews=this.deletedReviewIds();
+  const targets=ids.map(id=>{
+   if(kind==='reviews'){const review=reviews.find(item=>item.id===id);if(!review||deletedReviews.has(id)||review.jobId&&deleted.has(review.jobId))throw new Error('A selected review is no longer available. Refresh and select again.');return {id,jobId:review.jobId};}
+   const invoice=invoices.find(item=>item.id===id);if(!invoice||deleted.has(invoice.jobId)||!this.jobs().some(job=>job.id===invoice.jobId))throw new Error('A selected invoice is no longer available. Refresh and select again.');return {id:`job-${invoice.jobId}`,jobId:invoice.jobId};
+  });
+  if(new Set(targets.map(item=>item.id)).size!==targets.length)throw new Error('Select each shoot only once.');
+  this.db.exec('SAVEPOINT bulk_delete');try{const at=new Date().toISOString();for(const item of targets){this.db.prepare('INSERT INTO deleted_items VALUES(?,?,?)').run(item.id,item.jobId,at);this.audit('item-soft-deleted',item.id);}this.db.exec('RELEASE bulk_delete');}catch(error){this.db.exec('ROLLBACK TO bulk_delete; RELEASE bulk_delete');throw error;}
+  return targets.length;
+ }
+ bulkComplete(kind:'reviews'|'invoices',ids:string[],sheet:{rows:MasterRow[];spreadsheetId:string;gid:number;readAt:string}){
+  if(!ids.length||ids.length>200||new Set(ids).size!==ids.length||ids.some(id=>typeof id!=='string'||!id))throw new Error('Choose 1 to 200 distinct items.');
+  const reviews=this.reviews(),invoices=this.invoices(),deleted=this.deletedJobIds(),completed=new Set(this.completions().map(item=>item.jobId));
+  const selectedJobs=ids.map(id=>kind==='reviews'?reviews.find(item=>item.id===id)?.jobId:invoices.find(item=>item.id===id)?.jobId);
+  if(selectedJobs.some(id=>!id||deleted.has(id)||completed.has(id)||!this.jobs().some(job=>job.id===id)))throw new Error('A selected item has no active shoot to complete. Refresh and select again.');
+  const jobIds=[...new Set(selectedJobs)] as string[];
+  const matches=new Map(sheetCompletionMatches(this.jobs().filter(job=>!deleted.has(job.id)),sheet.rows).map(item=>[item.jobId,item]));
+  const missing=jobIds.filter(id=>!matches.has(id));
+  if(missing.length)throw new Error(`${missing.length} selected shoot${missing.length===1?' has':'s have'} no unique verified match in the live 2026 master Sheet. Nothing was moved.`);
+  this.db.exec('SAVEPOINT bulk_complete');try{const matchedAt=new Date().toISOString();for(const jobId of jobIds){const completion:Completion={...matches.get(jobId)!,spreadsheetId:sheet.spreadsheetId,gid:sheet.gid,readAt:sheet.readAt,matchedAt};this.db.prepare('INSERT INTO completed_jobs VALUES(?,?)').run(jobId,JSON.stringify(completion));this.audit('manual-sheet-match-completion',jobId);}this.db.exec('RELEASE bulk_complete');}catch(error){this.db.exec('ROLLBACK TO bulk_complete; RELEASE bulk_complete');throw error;}
+  return jobIds.length;
+ }
  saveReconciliationSuggestion(suggestion:ReconciliationSuggestion){const old=this.db.prepare('SELECT payload FROM reconciliation_suggestions WHERE id=?').get(suggestion.id) as {payload:string}|undefined;if(old){const existing=JSON.parse(old.payload) as ReconciliationSuggestion;if(existing.status!=='open')return false;const next={...suggestion,createdAt:existing.createdAt,status:existing.status,resolution:existing.resolution};this.db.prepare('UPDATE reconciliation_suggestions SET payload=? WHERE id=?').run(JSON.stringify(next),suggestion.id);return false;}this.db.prepare('INSERT INTO reconciliation_suggestions VALUES(?,?)').run(suggestion.id,JSON.stringify(suggestion));this.audit('reconciliation-suggested',suggestion.id);return true;}
  resolveReconciliationSuggestion(id:string,status:'confirmed'|'dismissed',resolution:string){const old=this.reconciliationSuggestions().find(item=>item.id===id);if(!old)throw new Error('Suggestion not found.');if(old.status!=='open')throw new Error('Suggestion was already reviewed.');const next={...old,status,resolution,updatedAt:new Date().toISOString()};this.db.prepare('UPDATE reconciliation_suggestions SET payload=? WHERE id=?').run(JSON.stringify(next),id);this.audit('reconciliation-'+status,id);return next;}
  invoices():InvoiceDraft[]{return (this.db.prepare('SELECT payload FROM invoice_drafts ORDER BY rowid DESC').all() as {payload:string}[]).map(r=>this.effectiveInvoicePricing(JSON.parse(r.payload)));}
