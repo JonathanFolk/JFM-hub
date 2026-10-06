@@ -42,3 +42,11 @@ Stop `jfm-hub`, preserve the post-deployment database and its WAL/SHM before any
 - Production has **0 Complete records**: the isolated preview's 93 reconciled entries were not migrated. Porting those requires a separate, evidence-aware reconciliation against current live records; a database replacement is not appropriate.
 - Readiness is **8/10**. Outstanding gates are the previously unconfigured independent backup and calendar synchronization. Several calendars already reported expired authorization before this release (last successes October 2); reconnect Calendar in Connections. The newly requested source has not yet been verified through a successful sync.
 - The master Sheet's last reconciliation attempt remains the September 27 read-access failure, with no successful reconciliation recorded. This release improves error diagnosis but does not claim to fix that Google connection or sharing. No fresh authenticated browser acceptance or Google reconnection was performed during deployment.
+
+## Follow-up UI release
+
+- Jonathan subsequently authorized deployment of **`13d2b46`**: Sort this shoot and the recoverable trash button now appear together directly below the project name. Optional notes remain below booking details. Redundant source/pricing text and the sorting helper sentence are removed; unique review warnings remain visible.
+- `pnpm verify` passed locally and on the staged Linux release: 72 tests, TypeScript, production build and clean dependency audit. The layout was visually checked in the isolated preview before deployment.
+- Backup: `/var/lib/jfm-hub/backups/deploy-13d2b46/before.sqlite`. Previous complete release: `/opt/jfm-hub-before-ui-13d2b46` (`7a9acd1`). The existing rollback procedure above applies with these paths.
+- Post-deployment HTTPS health, production mode, signed-out dashboard protection and byte-for-byte JS/CSS asset checks passed. Database integrity passed; all 273 bookings, 158 reviews, 11 drafts, invoice history, 98 rates, classifications, trash and completion records were unchanged by the deployment.
+- This release contains no server logic or database migration changes. It does not migrate preview completions or change the previously documented Google connection/secondary-backup limitations.
