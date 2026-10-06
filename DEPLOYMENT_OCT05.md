@@ -34,4 +34,11 @@ Stop `jfm-hub`, preserve the post-deployment database and its WAL/SHM before any
 
 ## Deployment result
 
-Pending server rollout and post-deployment checks.
+- **Deployed:** `7a9acd1` at https://hub.jonathanfolk.ca, October 5 local time. Source pushed to `origin/codex/phase2-invoicing`.
+- The staged Linux release passed frozen-lockfile installation and the complete `pnpm verify` suite (69 tests, type checks, build and a clean dependency audit).
+- Rehearsed startup migrations on a private server-side SQLite copy before switching. The final live database backup is `/var/lib/jfm-hub/backups/deploy-7a9acd1/before.sqlite`; matching private configuration copies are beside it. The preceding full application directory remains `/opt/jfm-hub-before-20261005-6b47df2`.
+- The service is active with zero restarts. Public HTTPS `/healthz` passes; signed-out dashboard requests return 401; session metadata confirms production mode and preview disabled. Both deployed JS/CSS assets match the locally verified build byte-for-byte. Security headers are present.
+- Live database integrity passes. All 273 original bookings, existing reviews, rate IDs, original invoice line items and Google connection material were preserved. Approved startup rules added 9 drafts (1 → 10), 11 rate variants (87 → 98), and 10 review records (147 → 157). No jobs were trashed during migration.
+- Production has **0 Complete records**: the isolated preview's 93 reconciled entries were not migrated. Porting those requires a separate, evidence-aware reconciliation against current live records; a database replacement is not appropriate.
+- Readiness is **8/10**. Outstanding gates are the previously unconfigured independent backup and calendar synchronization. Several calendars already reported expired authorization before this release (last successes October 2); reconnect Calendar in Connections. The newly requested source has not yet been verified through a successful sync.
+- The master Sheet's last reconciliation attempt remains the September 27 read-access failure, with no successful reconciliation recorded. This release improves error diagnosis but does not claim to fix that Google connection or sharing. No fresh authenticated browser acceptance or Google reconnection was performed during deployment.

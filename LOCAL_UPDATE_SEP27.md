@@ -1,6 +1,6 @@
 # Local Hub update — September 27, 2026
 
-Status: working preview only at http://127.0.0.1:4313. No push, deployment, calendar write, invoice sending or master-Sheet edit.
+Historical status on September 27: working preview only at http://127.0.0.1:4313. No push, deployment, calendar write, invoice sending or master-Sheet edit at that time. The application code was subsequently deployed October 5; see [deployment record](DEPLOYMENT_OCT05.md). The completion counts below remain local-preview results, not production counts.
 
 ## Ready to review
 

@@ -4,7 +4,9 @@
 
 September 27 adds centered detail bubbles, persistent invoice edits, default 5% GST with a toggle, Submit/Submit + Invoice with Undo, grouped rate dropdowns, and a Sheet-backed Complete section. See [the local update notes](LOCAL_UPDATE_SEP27.md) for checks and the approved explicit-Google-deletion policy, which protects drafts and completed records for review.
 
-Run `pnpm preview` and open http://127.0.0.1:4313 for the working update on a separate, token-free data copy. The preview includes the supplied palette, status ribbons, address subtitles, simplified RE packages, Commercial subtypes and saved invoice add-ons. It does not push changes to the hosted Hub. See [preview instructions](preview/README.md) and the [update review checklist](NEXT_UPDATE_REVIEW.md). The release description below records the prior Phase 2 baseline.
+The quality-of-life update was deployed on October 5; see the [deployment record and remaining connection issues](DEPLOYMENT_OCT05.md). The preview's private completion cleanup was not migrated into production.
+
+Run `pnpm preview` and open http://127.0.0.1:4313 for the same interface on a separate, token-free data copy. The preview includes the supplied palette, status ribbons, address subtitles, simplified RE packages, Commercial subtypes and saved invoice add-ons. Running the preview does not change the hosted Hub. See [preview instructions](preview/README.md) and the [update review checklist](NEXT_UPDATE_REVIEW.md). The release description below records the prior Phase 2 baseline.
 
 Phase 1 was accepted and merged to `main` on September 25, 2026. Phase 2 adds controlled invoice drafting while preserving the hosted calendar, review and recovery safeguards.
 
