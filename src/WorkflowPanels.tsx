@@ -7,16 +7,19 @@ import {groupRates} from './rate-groups';
 async function request(path:string,body?:unknown){const response=await fetch('/api/'+path,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json','X-JFM-Request':'1'},body:body===undefined?undefined:JSON.stringify(body)});const data=await response.json();if(!response.ok)throw new Error(data.error||'Request failed');return data;}
 const money=(cents:number,currency:'CAD'|'USD')=>new Intl.NumberFormat('en-CA',{style:'currency',currency}).format(cents/100);
 
-export function ReviewSorter({note,onNote,busy,onSort,onDelete}:{note:string;onNote:(value:string)=>void;busy:boolean;onSort:(category:ShootCategory,range:string,details:SortDetails,openInvoice:boolean)=>void;onDelete:()=>void}){
+export function ReviewNote({note,onNote}:{note:string;onNote:(value:string)=>void}){
+ return <div className="review-form"><label htmlFor="review-note">Review note <span className="caption">(optional)</span></label><textarea id="review-note" value={note} onChange={event=>onNote(event.target.value)} maxLength={1000} placeholder="Add context if it will be useful later"/></div>;
+}
+
+export function ReviewSorter({busy,onSort,onDelete}:{busy:boolean;onSort:(category:ShootCategory,range:string,details:SortDetails,openInvoice:boolean)=>void;onDelete:()=>void}){
  const [range,setRange]=useState(''),[category,setCategory]=useState<ShootCategory>('Real Estate'),[details,setDetails]=useState<SortDetails>({});
- return <div className="review-form"><label htmlFor="review-note">Review note <span className="caption">(optional)</span></label><textarea id="review-note" value={note} onChange={event=>onNote(event.target.value)} maxLength={1000} placeholder="Add context if it will be useful later"/>
-  <h3>Sort this shoot</h3><p className="caption">Choose its type to move it toward invoice drafting.</p>
+ return <section className="review-form shoot-sorter" aria-labelledby="shoot-sort-title">
+  <div className="shoot-sort-heading"><h3 id="shoot-sort-title">Sort this shoot</h3><button className="secondary icon-button" disabled={busy} title="Move to Recently Deleted — can be restored" aria-label="Move to Recently Deleted" onClick={onDelete}><TrashIcon/></button></div>
   <div className="category-choices">{shootCategories.map(value=><button key={value} className="secondary" disabled={busy} aria-pressed={category===value} onClick={()=>setCategory(value)}>{value}</button>)}</div>
   {category==='Real Estate'&&<div className="real-estate-sort"><label htmlFor="sort-range">Real Estate package / size</label><select id="sort-range" value={range} onChange={event=>setRange(event.target.value)}><option value="">Choose a package or size</option>{squareFootageRanges.map(value=><option key={value}>{value}</option>)}</select></div>}
   {category==='Commercial'&&<div className="commercial-choice"><CommercialFields details={details} onChange={setDetails}/><small>Choose the commercial rate for this photoshoot. Existing draft lines and prices are preserved.</small></div>}
   <div className="sort-submit">{[false,true].map(openInvoice=><button key={String(openInvoice)} className={openInvoice?'primary':'secondary'} disabled={busy||(category==='Real Estate'&&!range)||(category==='Commercial'&&!details.commercialSubtype)} onClick={()=>onSort(category,category==='Real Estate'?range:'',category==='Commercial'?details:{},openInvoice)}>{openInvoice?'Submit + Invoice':'Submit'}</button>)}</div>
-  <div className="delete-action"><button className="secondary icon-button" disabled={busy} title="Move to Recently Deleted" aria-label="Move to Recently Deleted" onClick={onDelete}><TrashIcon/></button><p className="caption">Hides the entire shoot and its linked Hub records. You can restore it from the left navigation.</p></div>
- </div>;
+ </section>;
 }
 
 function RateGroup({rates}:{rates:Rate[]}){const [id,setId]=useState(rates[0].id);const rate=rates.find(r=>r.id===id)||rates[0];return <div className="rate-row"><span><strong>{rate.service}</strong><small>{rate.category} · {rate.currency} / {rate.unit}</small><small>{rate.source}</small>{rate.note&&<small>{rate.note}</small>}</span><label className="rate-variant-select">Available prices<select aria-label={`Prices for ${rate.service}`} value={rate.id} onChange={e=>setId(e.target.value)}>{rates.map(r=><option key={r.id} value={r.id}>{r.profile==='standard'?'Standard':'Legacy'} · {r.squareFootageRange||'All sizes'} · {money(r.unitPriceCents,r.currency)} / {r.unit}</option>)}</select></label></div>;}

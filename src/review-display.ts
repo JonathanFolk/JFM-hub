@@ -7,6 +7,11 @@ export function streetCity(location:string){
 }
 export function bookingStatus(status:Job['status']){return ['Held','To reschedule','Unconfirmed'].includes(status)?'Unconfirmed':status==='Booked'?'Confirmed':status;}
 
+export function redundantReviewDetail(detail:string,issues:string[]){
+ const normalize=(text:string)=>text.trim().replace(/[.\s]+$/,'');
+ return [issues.join('. '),...issues].some(issue=>normalize(issue)===normalize(detail));
+}
+
 const serviceCodes:Record<string,string>={
  'Premium photo':'PS','Basic photo':'EP','Video':'PV','Basic video':'EV',
  'Drone':'DR','Floor plan':'FP','3D floor plan':'3DFP','Twilight':'TL'
