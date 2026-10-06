@@ -59,8 +59,10 @@ export async function scheduledTick(store:Store,sources=calendarSources(),deps=d
   const nightly=store.getSetting('last-nightly-'+id)!==day;
   if(due)try{await syncCalendar(store,nightly,source,shared);if(nightly)store.setSetting('last-nightly-'+id,day);}catch{/* Other calendars and the backup still run. */}
  }
- if(store.getSetting('reconciliation-history-id')&&store.getSetting('gmail-refresh')&&store.getSetting('sheets-refresh')){
-  const state=store.sync('invoice-reconciliation');if(!state?.lastAttempt||Date.now()-Date.parse(state.lastAttempt)>=3600000)try{await syncInvoiceEvidence(store);}catch{/* Failure is recorded; manual sync remains available. */}
+ const pendingEvidence=!!store.getSetting('reconciliation-pending-v1');
+ if((pendingEvidence||store.getSetting('reconciliation-history-id'))&&store.getSetting('gmail-refresh')&&store.getSetting('sheets-refresh')){
+  const state=store.sync('invoice-reconciliation'),interval=pendingEvidence&&(!state?.error||/rate-limiting|temporarily unavailable/.test(state.error))?60000:3600000;
+  if(!state?.lastAttempt||Date.now()-Date.parse(state.lastAttempt)>=interval)try{await syncInvoiceEvidence(store);}catch{/* Failure is recorded; manual sync remains available. */}
  }
  if(store.getSetting('last-backup')!==day){try{await dailyBackup(store);store.setSetting('last-backup',day);}catch{/* Failure recorded by dailyBackup. */}}
 }

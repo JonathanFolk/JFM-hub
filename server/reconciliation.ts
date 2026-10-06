@@ -4,6 +4,7 @@ import {gmailAccessToken} from './gmail.ts';
 import {readInvoiceSheet} from './invoicing-sheet.ts';
 import type {InvoiceSheetRow,ReconciliationSuggestion,SyncState} from './types.ts';
 import {stableId} from './parser.ts';
+import {createGmailReader} from './gmail-reader.ts';
 
 type Evidence=Pick<ReconciliationSuggestion,'kind'|'sourceId'|'threadId'|'subject'|'from'|'date'|'excerpt'|'invoiceNumbers'|'amountCents'|'currency'>;
 const syncId='invoice-reconciliation';
@@ -47,46 +48,58 @@ export function matchEvidence(evidence:Evidence,rows:InvoiceSheetRow[]):Pick<Rec
 function suggestion(evidence:Evidence,rows:InvoiceSheetRow[]):ReconciliationSuggestion{
  const now=new Date().toISOString();return {...evidence,...matchEvidence(evidence,rows),id:stableId('reconciliation',evidence.sourceId+'-'+evidence.kind),source:'gmail',status:'open',resolution:'',createdAt:now,updatedAt:now};
 }
-async function gmailGet(token:string,path:string):Promise<any>{
- const response=await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`,{headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(30000)});
- if(!response.ok){const error=new Error(response.status===401?'Gmail authorization expired. Reconnect in Connections.':`Gmail sync failed (${response.status}).`);Object.assign(error,{status:response.status});throw error;}
- return response.json();
-}
-async function changedMessageIds(token:string,cursor:string|undefined):Promise<{ids:string[];historyId:string;initial:boolean}>{
+async function changedMessageIds(get:(path:string)=>Promise<any>,cursor:string|undefined):Promise<{ids:string[];historyId:string;initial:boolean}>{
  const ids=new Set<string>();
  if(cursor){
   let page:string|undefined,historyId=cursor;
   do{const query=new URLSearchParams({startHistoryId:cursor,maxResults:'500',historyTypes:'messageAdded'});if(page)query.set('pageToken',page);
    let result:{history?:{messagesAdded?:{message?:{id?:string}}[]}[];nextPageToken?:string;historyId?:string};
-   try{result=await gmailGet(token,`history?${query}`);}catch(error){if((error as Error&{status?:number}).status===404)throw new Error('Gmail change history expired. Use Rescan last 30 days in Connections, then audit any older gap manually.');throw error;}
+   try{result=await get(`history?${query}`);}catch(error){if((error as Error&{status?:number}).status===404)throw new Error('Gmail change history expired. Use Rescan last 30 days in Connections, then audit any older gap manually.');throw error;}
    for(const record of result.history||[])for(const added of record.messagesAdded||[])if(added.message?.id)ids.add(added.message.id);
    historyId=result.historyId||historyId;page=result.nextPageToken;if(ids.size>2000)throw new Error('Too many Gmail changes for one sync. No cursor was advanced.');
   }while(page);
   return {ids:[...ids],historyId,initial:false};
  }
- const profile=await gmailGet(token,'profile') as {historyId?:string};if(!profile.historyId)throw new Error('Gmail did not return a mailbox cursor.');
+ const profile=await get('profile') as {historyId?:string};if(!profile.historyId)throw new Error('Gmail did not return a mailbox cursor.');
  let page:string|undefined;
  do{const query=new URLSearchParams({q:'newer_than:30d {invoice interac "e-transfer" autodeposit "auto-deposit" stripe deposit}',maxResults:'500'});if(page)query.set('pageToken',page);
-  const result=await gmailGet(token,`messages?${query}`) as {messages?:{id:string}[];nextPageToken?:string};
+  const result=await get(`messages?${query}`) as {messages?:{id:string}[];nextPageToken?:string};
   for(const message of result.messages||[])ids.add(message.id);page=result.nextPageToken;
   if(ids.size>2000)throw new Error('More than 2,000 messages in the initial 30-day scan. Narrow the backfill before continuing.');
  }while(page);
  return {ids:[...ids],historyId:profile.historyId,initial:true};
 }
-export async function syncInvoiceEvidence(store:Store,rescan=false):Promise<{scanned:number;created:number;open:number;initial:boolean}>{
+const pendingKey='reconciliation-pending-v1';
+type PendingScan={ids:string[];historyId:string;initial:boolean;index:number;created:number};
+type SyncDependencies={token:typeof gmailAccessToken;sheet:typeof readInvoiceSheet;reader:typeof createGmailReader;batchSize:number};
+const syncDependencies:SyncDependencies={token:gmailAccessToken,sheet:readInvoiceSheet,reader:createGmailReader,batchSize:20};
+export async function syncInvoiceEvidence(store:Store,rescan=false,deps=syncDependencies):Promise<{scanned:number;created:number;open:number;initial:boolean;remaining:number}>{
  if(running.has(store))throw new Error('An invoice evidence sync is already running.');
  if(!store.getSetting('gmail-refresh')||!store.getSetting('sheets-refresh'))throw new Error('Connect Gmail and the master spreadsheet in Connections first.');
  running.add(store);const old=store.sync(syncId),attempt=new Date().toISOString();const state:SyncState={id:syncId,label:'Invoice evidence (Gmail + 2026 Sheet)',mode:'live',lastAttempt:attempt,lastSuccess:old?.lastSuccess||null,snapshotAt:null,error:null,count:old?.count||0};store.setSync(state);
  try{
-  const [rows,token]=await Promise.all([readInvoiceSheet(store),gmailAccessToken(store)]);
+  const [rows,token]=await Promise.all([deps.sheet(store),deps.token(store)]);
+  const get=deps.reader(token);
   for(const oldSuggestion of store.reconciliationSuggestions().filter(item=>item.status==='open'))store.saveReconciliationSuggestion({...oldSuggestion,...matchEvidence(oldSuggestion,rows),updatedAt:new Date().toISOString()});
-  const changed=await changedMessageIds(token,rescan?undefined:store.getSetting('reconciliation-history-id'));let created=0;
-  for(let index=0;index<changed.ids.length;index+=10){const messages=await Promise.all(changed.ids.slice(index,index+10).map(async id=>{try{return await gmailGet(token,`messages/${encodeURIComponent(id)}?format=full`) as GmailMessage;}catch(error){if((error as Error&{status?:number}).status===404)return null;throw error;}}));
-   for(const message of messages){if(!message)continue;const evidence=extractReconciliationEvidence(message,rows);if(evidence&&store.saveReconciliationSuggestion(suggestion(evidence,rows)))created++;}
+  // Resume saved work even when Rescan is clicked again; never discard pending IDs.
+  const saved=store.getSetting(pendingKey);
+  const changed:PendingScan=saved?JSON.parse(saved):{...await changedMessageIds(get,rescan?undefined:store.getSetting('reconciliation-history-id')),index:0,created:0};
+  store.setSetting(pendingKey,JSON.stringify(changed));
+  const end=Math.min(changed.ids.length,changed.index+deps.batchSize);
+  while(changed.index<end){
+   let message:GmailMessage|null;try{message=await get(`messages/${encodeURIComponent(changed.ids[changed.index])}?format=full`);}catch(error){if((error as Error&{status?:number}).status===404)message=null;else throw error;}
+   store.db.exec('BEGIN IMMEDIATE');try{
+    if(message){const evidence=extractReconciliationEvidence(message,rows);if(evidence&&store.saveReconciliationSuggestion(suggestion(evidence,rows)))changed.created++;}
+    changed.index++;store.setSetting(pendingKey,JSON.stringify(changed));store.db.exec('COMMIT');
+   }catch(error){store.db.exec('ROLLBACK');throw error;}
   }
-  store.setSetting('reconciliation-history-id',changed.historyId);
+  const remaining=changed.ids.length-changed.index;
   const open=store.reconciliationSuggestions().filter(item=>item.status==='open').length;
-  store.setSync({...state,lastSuccess:new Date().toISOString(),count:open});store.audit('reconciliation-sync-success',syncId);
-  return {scanned:changed.ids.length,created,open,initial:changed.initial};
+  if(!remaining){store.db.exec('BEGIN IMMEDIATE');try{
+   store.setSetting('reconciliation-history-id',changed.historyId);store.db.prepare('DELETE FROM settings WHERE key=?').run(pendingKey);
+   store.setSync({...state,lastSuccess:new Date().toISOString(),count:open});store.audit('reconciliation-sync-success',syncId);store.db.exec('COMMIT');
+  }catch(error){store.db.exec('ROLLBACK');throw error;}}
+  else store.setSync({...state,count:open});
+  return {scanned:changed.index,created:changed.created,open,initial:changed.initial,remaining};
  }catch(error){store.setSync({...state,error:error instanceof Error?error.message:'Invoice evidence sync failed.'});throw error;}finally{running.delete(store);}
 }
