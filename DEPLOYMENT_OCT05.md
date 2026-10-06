@@ -1,5 +1,12 @@
 # Hub quality-of-life release — October 5, 2026
 
+## October 6 bulk actions
+
+- Deployed code release **`e868a27`** to https://hub.jonathanfolk.ca and pushed it to `origin/codex/phase2-invoicing`. Review and Invoices now support selecting visible items, moving selected shoots to Complete after a unique live 2026 master Sheet match, and recoverable bulk deletion. An unmatched completion batch changes nothing; the Sheet remains read-only.
+- The isolated release passed TypeScript, 92 tests and a production build locally, then `pnpm verify` on staged Linux code with no known dependency vulnerabilities. Rehearsal on a private production database copy preserved all record counts.
+- Stopped the service for an integrity-checked final backup at `/var/lib/jfm-hub/backups/deploy-e868a27/before.sqlite`. The preceding full application directory is `/opt/jfm-hub-before-e868a27` (`639395b`). The existing rollback procedure below applies.
+- Post-deployment HTTPS health passed, signed-out dashboard access remained HTTP 401, and production mode and authentication remained enabled. Public JS/CSS hashes match the verified build. The service is active with zero restarts; database integrity passes and jobs (273), reviews (158), drafts (11), completions (107), and deleted records (30) are unchanged. The master Sheet connection exists, but no authenticated bulk action was performed against live records during deployment.
+
 Jonathan authorized deployment of the reviewed local update on October 5.
 
 ## Latest: responsive layout repair
