@@ -2,6 +2,7 @@
   "name": "jfm-hub", "version": "0.1.0", "private": true, "type": "module",
   "scripts": {
     "dev": "tsx watch server/index.ts",
+    "preview": "tsx scripts/preview.ts",
     "build": "tsc --noEmit && vite build",
     "start": "tsx server/index.ts",
     "import": "tsx scripts/import.ts",

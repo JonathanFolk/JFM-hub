@@ -16,7 +16,7 @@ export function normalizeInvoiceInput(value:unknown):InvoiceDraftInput{
  const raw=(value&&typeof value==='object'?value:{}) as Record<string,unknown>;
  const lines:InvoiceLine[]=Array.isArray(raw.lines)?raw.lines.slice(0,25).map((item,index):InvoiceLine=>{
   const line=(item&&typeof item==='object'?item:{}) as Record<string,unknown>;
-  return {id:text(line.id,80)||`line-${index+1}`,description:text(line.description,160),quantity:Number(line.quantity),unitPriceCents:Number(line.unitPriceCents),pricingProfileOverride:line.pricingProfileOverride==='standard'||line.pricingProfileOverride==='legacy'?line.pricingProfileOverride:null};
+  return {id:text(line.id,80)||`line-${index+1}`,description:text(line.description,160),quantity:Number(line.quantity),unitPriceCents:Number(line.unitPriceCents),pricingProfileOverride:line.pricingProfileOverride==='standard'||line.pricingProfileOverride==='legacy'?line.pricingProfileOverride:null,rateSource:typeof line.rateSource==='string'?line.rateSource.slice(0,300):undefined};
  }):[];
  return {
   status:raw.status==='ready'?'ready':'draft',client:text(raw.client,120),property:text(raw.property,200),squareFeet:text(raw.squareFeet,50),pricingProfile:raw.pricingProfile==='standard'||raw.pricingProfile==='legacy'?raw.pricingProfile:'review',pricingProfileMode:raw.pricingProfileMode==='invoice'?'invoice':'automatic',
@@ -28,16 +28,16 @@ export function normalizeInvoiceInput(value:unknown):InvoiceDraftInput{
 
 export function validateInvoiceDraft(input:InvoiceDraftInput,job:Job,openReviews:Review[],now=DateTime.now().setZone('America/Vancouver')){
  const errors:string[]=[];
- if(input.client.length<2)errors.push('Add the billing client.');
+ if(input.status==='ready'&&input.client.length<2)errors.push('Add the billing client.');
  if(input.client.length>120)errors.push('The billing client is too long.');
- if(input.property.length<2)errors.push('Add the property or project.');
+ if(input.status==='ready'&&input.property.length<2)errors.push('Add the property or project.');
  if(input.property.length>200)errors.push('The property or project is too long.');
  if(input.squareFeet.length>50)errors.push('The square-footage note is too long.');
- if(!input.invoiceDate||!input.dueDate)errors.push('Use valid invoice and due dates.');
- else if(input.dueDate<input.invoiceDate)errors.push('The due date cannot be before the invoice date.');
+ if(input.status==='ready'&&(!input.invoiceDate||!input.dueDate))errors.push('Use valid invoice and due dates.');
+ else if(input.invoiceDate&&input.dueDate&&input.dueDate<input.invoiceDate)errors.push('The due date cannot be before the invoice date.');
  if(!input.lines.length)errors.push('Add at least one invoice line.');
  for(const line of input.lines){
-  if(line.description.length<2)errors.push('Every line needs a description.');
+  if(input.status==='ready'&&line.description.length<2)errors.push('Every line needs a description.');
   if(line.description.length>160||line.id.length>80)errors.push('An invoice line is too long.');
   if(!Number.isInteger(line.quantity)||line.quantity<1||line.quantity>100)errors.push('Line quantities must be whole numbers from 1 to 100.');
   if(!Number.isInteger(line.unitPriceCents)||line.unitPriceCents<0||line.unitPriceCents>100_000_000)errors.push('Line prices must be valid non-negative amounts.');
@@ -61,5 +61,5 @@ export function validateInvoiceDraft(input:InvoiceDraftInput,job:Job,openReviews
 
 export function newInvoiceInput(job:Job,now=DateTime.now().setZone('America/Vancouver')):InvoiceDraftInput{
  const invoiceDate=now.toISODate()!;
- return {status:'draft',client:job.client,property:job.location,squareFeet:'',pricingProfile:'review',pricingProfileMode:'automatic',currency:'CAD',invoiceDate,dueDate:now.plus({days:30}).toISODate()!,completionConfirmed:false,taxTreatment:'review',taxRateBps:0,taxNote:'',lines:(job.services.length?job.services:['Service to confirm']).map((description,index):InvoiceLine=>({id:`line-${index+1}`,description,quantity:1,unitPriceCents:0,pricingProfileOverride:null})),notes:''};
+ return {status:'draft',client:job.client,property:job.location,squareFeet:'',pricingProfile:'review',pricingProfileMode:'automatic',currency:'CAD',invoiceDate,dueDate:now.plus({days:30}).toISODate()!,completionConfirmed:false,taxTreatment:'taxable',taxRateBps:500,taxNote:'5% GST — business default set by owner.',lines:(job.services.length?job.services:['Service to confirm']).map((description,index):InvoiceLine=>({id:`line-${index+1}`,description,quantity:1,unitPriceCents:0,pricingProfileOverride:null})),notes:''};
 }

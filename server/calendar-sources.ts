@@ -18,7 +18,10 @@ export function validateSources(value:unknown):CalendarSource[]{
 }
 export function calendarSources():CalendarSource[]{
  const path=process.env.CALENDAR_SOURCES_FILE||resolve(dirname(config.database),'calendars.json');
- return validateSources(existsSync(path)?JSON.parse(readFileSync(path,'utf8')):[{key:'primary',calendarId:config.calendarId,label:'Jonathan Folk Calendar'}]);
+ const sources:CalendarSource[]=validateSources(existsSync(path)?JSON.parse(readFileSync(path,'utf8')):[{key:'primary',calendarId:config.calendarId,label:'Jonathan Folk Calendar'}]);
+ const floor=sources.find(s=>s.calendarId==='threedeelevate@gmail.com'||/3d\s*elevate/i.test(s.label));
+ if(floor)floor.contractor='3D Elevate';else sources.push({key:'threedeelevate',calendarId:'threedeelevate@gmail.com',label:'3D Elevate floor plans',contractor:'3D Elevate'});
+ return validateSources(sources);
 }
 export function ensureCalendarSources(store:Store,sources=calendarSources()){
  for(const source of sources){const id=sourceId(source);if(!store.sync(id))store.setSync({id,label:source.label,mode:'not-connected',lastAttempt:null,lastSuccess:null,snapshotAt:null,error:null,count:0});}
@@ -26,5 +29,6 @@ export function ensureCalendarSources(store:Store,sources=calendarSources()){
 export function currentJobs(store:Store,sources=calendarSources()){
  const active=store.getSetting('active-calendar')||'calendar-export';
  const visible=new Set(sources.filter(s=>s.key!=='primary').map(sourceId));visible.add(active);
- const deleted=store.deletedJobIds();return store.jobs().filter(j=>visible.has(j.source)&&!deleted.has(j.id));
+ if(config.preview)for(const sync of store.syncs())if(sync.id.startsWith('google-calendar-'))visible.add(sync.id);
+ const deleted=store.deletedJobIds();return store.jobs().filter(j=>visible.has(j.source)&&!deleted.has(j.id)&&!j.supportingJobId);
 }

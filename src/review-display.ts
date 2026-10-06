@@ -1,5 +1,12 @@
 import type {Job,SyncState} from '../server/types';
 
+export function streetCity(location:string){
+ const parts=location.replace(/\b[A-Z]\d[A-Z]\s*\d[A-Z]\d\b/gi,'').split(',').map(p=>p.trim()).filter(Boolean);
+ const cleaned=parts.map(p=>p.replace(/\b(?:British Columbia|BC|Canada|United States|USA)\b/gi,'').trim()).filter(Boolean);
+ return cleaned.join(', ')||'Address needs confirmation';
+}
+export function bookingStatus(status:Job['status']){return ['Held','To reschedule','Unconfirmed'].includes(status)?'Unconfirmed':status==='Booked'?'Confirmed':status;}
+
 const serviceCodes:Record<string,string>={
  'Premium photo':'PS','Basic photo':'EP','Video':'PV','Basic video':'EV',
  'Drone':'DR','Floor plan':'FP','3D floor plan':'3DFP','Twilight':'TL'

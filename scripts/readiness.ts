@@ -19,7 +19,7 @@ check('Built interface',existsSync(resolve(config.staticDir,'index.html')),'The 
 check('Secondary backup',!!config.secondaryBackupDir&&config.secondaryBackupDir!==config.backupDir,'An independent backup target is configured.','Set SECONDARY_BACKUP_DIR to a separately administered Canadian recovery target.');
 
 let sources:ReturnType<typeof calendarSources>=[];
-try{sources=calendarSources();check('Calendar allowlist',!!process.env.CALENDAR_SOURCES_FILE&&sources.length===7,'Exactly seven explicitly selected calendars are configured.','Set CALENDAR_SOURCES_FILE to the private, approved seven-calendar file.');}
+try{sources=calendarSources();check('Calendar allowlist',!!process.env.CALENDAR_SOURCES_FILE&&sources.length>=7&&sources.some(s=>s.contractor==='3D Elevate'),`${sources.length} approved calendars are configured, including 3D Elevate.`,'Set CALENDAR_SOURCES_FILE to the approved calendar list and include the requested 3D Elevate source.');}
 catch(error){checks.push({name:'Calendar allowlist',ok:false,detail:error instanceof Error?error.message:'Calendar allowlist is invalid.'});}
 
 if(!existsSync(config.database))checks.push({name:'Runtime database',ok:false,detail:'The runtime database does not exist yet.'});
@@ -29,7 +29,7 @@ else{
   const integrity=db.prepare('PRAGMA integrity_check').get() as Record<string,string>;
   check('Database integrity',Object.values(integrity)[0]==='ok','SQLite integrity check passed.','SQLite integrity check failed.');
   const rows=db.prepare('SELECT id,payload FROM sync').all() as {id:string;payload:string}[];const syncs=new Map(rows.map(row=>[row.id,JSON.parse(row.payload) as SyncState]));
-  const live=sources.map(source=>syncs.get(sourceId(source)));check('Calendar synchronization',sources.length===7&&live.every(state=>state?.lastSuccess&&!state.error),'All seven calendars have a recorded successful synchronization.','One or more approved calendars have not synchronized successfully.');
+  const live=sources.map(source=>syncs.get(sourceId(source)));check('Calendar synchronization',sources.length>=7&&live.every(state=>state?.lastSuccess&&!state.error),'All approved calendars have a recorded successful synchronization.','One or more approved calendars have not synchronized successfully.');
   const backup=syncs.get('backup');const recent=!!backup?.lastSuccess&&Date.now()-Date.parse(backup.lastSuccess)<26*3600000&&!backup.error;
   check('Recent backup',recent,'A successful backup is less than 26 hours old.','No successful backup has been recorded in the last 26 hours.');
   db.close();

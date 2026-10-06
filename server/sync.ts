@@ -3,22 +3,24 @@ import {join} from 'node:path';
 import {readdirSync,unlinkSync} from 'node:fs';
 import type {Store} from './store.ts';
 import {calendarAccessToken} from './auth.ts';
-import {collectGoogleEvents} from './calendar.ts';
+import {collectGoogleEvents,readGoogleEvent} from './calendar.ts';
 import {config} from './config.ts';
 import {calendarSources,sourceId,ensureCalendarSources,type CalendarSource} from './calendar-sources.ts';
 import {syncInvoiceEvidence} from './reconciliation.ts';
 const locks=new WeakMap<Store,Set<string>>();
-export type SyncDependencies={token:(store:Store)=>Promise<string>;collect:typeof collectGoogleEvents};
-const dependencies:SyncDependencies={token:calendarAccessToken,collect:collectGoogleEvents};
+export type SyncDependencies={token:(store:Store)=>Promise<string>;collect:typeof collectGoogleEvents;read?:typeof readGoogleEvent};
+const dependencies:SyncDependencies={token:calendarAccessToken,collect:collectGoogleEvents,read:readGoogleEvent};
 export async function syncCalendar(store:Store,forceFull=false,source=calendarSources()[0],deps=dependencies){
  const id=sourceId(source);const running=locks.get(store)||new Set<string>();locks.set(store,running);
  if(running.has(id))throw new Error('A calendar refresh is already running.');running.add(id);
  const old=store.sync(id);const now=new Date().toISOString();
  const state={id,label:source.label,mode:'live' as const,lastAttempt:now,lastSuccess:old?.lastSuccess||null,snapshotAt:null,error:null,count:old?.count||0,syncToken:old?.syncToken};store.setSync(state);
  try {
-  const token=await deps.token(store);const result=await deps.collect(token,source.calendarId,forceFull?undefined:old?.syncToken);
+  const policyKey='calendar-window-v2-'+id;
+  const token=await deps.token(store);const result=await deps.collect(token,source.calendarId,forceFull||!store.getSetting(policyKey)?undefined:old?.syncToken);
+  if(result.full&&result.window&&deps.read){const ids=new Set(result.events.map(e=>e.id));const missing=store.jobs().filter(j=>j.source===id&&!ids.has(j.sourceId)&&Date.parse(j.start)<Date.parse(result.window!.to)&&Date.parse(j.end)>Date.parse(result.window!.from));if(missing.length>100)throw new Error('Too many missing events to verify in one run. Previous records retained.');for(const job of missing){const moved=await deps.read(token,source.calendarId,job.sourceId);if(moved)result.events.push(moved);}}
   const success={...state,lastSuccess:new Date().toISOString(),syncToken:result.syncToken,count:0};
-  const applied=store.apply(id,result.events,{full:result.full,state:success,contractor:source.contractor});
+  const applied=store.apply(id,result.events,{full:result.full,state:success,contractor:source.contractor,window:result.window,googleDeletionEvidence:true});store.setSetting(policyKey,'1');
   store.setSync({...success,count:applied.count});if(source.key==='primary')store.setSetting('active-calendar',id);
   store.audit('calendar-sync-success',id);return applied;
  }catch(e){store.setSync({...state,error:e instanceof Error?e.message:'Calendar could not refresh'});throw e;}

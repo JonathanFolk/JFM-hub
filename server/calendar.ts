@@ -10,7 +10,7 @@ export function readICS(text:string,from='2026-01-01',to='2027-01-01'):RawEvent[
    const startISO=iso(start),day=DateTime.fromISO(startISO).setZone('America/Vancouver').toISODate()!;
    if(day<from||day>=to)return;
    const id=ev.uid+(occurrence?'|'+occurrence:'');
-   out.set(id,{id,start:startISO,end:iso(end),title:ev.summary||'',location:ev.location||'',status:String(ev.component.getFirstPropertyValue('status')||'').toLowerCase(),recurring:!!occurrence});
+   out.set(id,{id,start:startISO,end:iso(end),title:ev.summary||'',location:ev.location||'',description:ev.description||'',status:String(ev.component.getFirstPropertyValue('status')||'').toLowerCase(),recurring:!!occurrence});
  };
  const masters=new Set<string>();
  for(const c of components){
@@ -38,11 +38,12 @@ export function googleEvent(e:any):RawEvent {
  const start=e.start?.dateTime||e.start?.date||'';
  const norm=(v:string)=>v?DateTime.fromISO(v,{zone:'America/Vancouver'}).toUTC().toISO()!:'';
  // Google event IDs remain stable for cancelled tombstones where iCalUID is absent.
- return {id:e.id,start:norm(start),end:norm(e.end?.dateTime||e.end?.date||start),title:e.summary||'',location:e.location||'',status:e.status,recurring:!!original};
+ return {id:e.id,start:norm(start),end:norm(e.end?.dateTime||e.end?.date||start),title:e.summary||'',location:e.location||'',description:e.description||'',status:e.status,recurring:!!original};
 }
-export async function collectGoogleEvents(token:string,calendar:string,syncToken?:string,fetcher:typeof fetch=fetch,now=DateTime.now()):Promise<{events:RawEvent[];syncToken:string;full:boolean}> {
+export const calendarWindow=(now:DateTime=DateTime.now())=>({from:now.setZone('America/Vancouver').minus({days:14}).startOf('day').toISO()!,to:now.setZone('America/Vancouver').plus({months:6}).startOf('day').toISO()!});
+export async function collectGoogleEvents(token:string,calendar:string,syncToken?:string,fetcher:typeof fetch=fetch,now=DateTime.now()):Promise<{events:RawEvent[];syncToken:string;full:boolean;window?:{from:string;to:string}}> {
  let page:string|undefined;let cursor=syncToken;let full=!cursor;let restarted=false;let events:RawEvent[]=[];let pages=0;
- const localNow=now.setZone('America/Vancouver');const timeMin=localNow.startOf('year').toISO()!;const timeMax=localNow.plus({years:2}).startOf('year').toISO()!;
+ const window=calendarWindow(now);const timeMin=window.from,timeMax=window.to;
  do {
   if(++pages>100)throw new Error('Calendar has too many pages for one run');
   const url=new URL(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar)}/events`);
@@ -53,6 +54,12 @@ export async function collectGoogleEvents(token:string,calendar:string,syncToken
   if(response.status===410&&!restarted){cursor=undefined;page=undefined;full=true;restarted=true;events=[];continue;}
   if(!response.ok)throw new Error(response.status===401?'Calendar authorization expired. Reconnect.':'Calendar could not be read. Try again.');
   const body=await response.json() as any;events.push(...(body.items||[]).map(googleEvent));page=body.nextPageToken;
-  if(!page){if(!body.nextSyncToken)throw new Error('Calendar returned an incomplete synchronization');return {events,syncToken:body.nextSyncToken,full};}
+  if(!page){if(!body.nextSyncToken)throw new Error('Calendar returned an incomplete synchronization');return {events,syncToken:body.nextSyncToken,full,window};}
  }while(true);
+}
+export async function readGoogleEvent(token:string,calendar:string,id:string):Promise<RawEvent|null>{
+ const response=await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar)}/events/${encodeURIComponent(id)}`,{headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(30000)});
+ if(response.status===404||response.status===410)return null;
+ if(!response.ok)throw new Error('Could not verify a moved calendar event. Previous records have been retained.');
+ return googleEvent(await response.json());
 }

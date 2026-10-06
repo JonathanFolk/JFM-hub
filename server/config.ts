@@ -1,6 +1,7 @@
 import {resolve} from 'node:path';
 export const config={
  mode:process.env.APP_MODE||'production',
+ preview:process.env.HUB_PREVIEW==='1',
  port:Number(process.env.PORT||4310),origin:process.env.APP_ORIGIN||'http://127.0.0.1:4310',
  database:resolve(process.env.DATA_DIR||'data','hub.sqlite'),backupDir:resolve(process.env.BACKUP_DIR||'backups'),
  secondaryBackupDir:process.env.SECONDARY_BACKUP_DIR?resolve(process.env.SECONDARY_BACKUP_DIR):'',
@@ -15,6 +16,7 @@ export function validEncryptionKey(value=config.encryptionKey){
 }
 export function validateConfig(){
  if(!['local','production'].includes(config.mode))throw new Error('APP_MODE must be local or production.');
+ if(config.preview&&config.mode!=='local')throw new Error('Preview must run in local mode.');
  if(!Number.isInteger(config.port)||config.port<1||config.port>65535)throw new Error('PORT must be an integer from 1 to 65535.');
  let origin:URL;try{origin=new URL(config.origin);}catch{throw new Error('APP_ORIGIN must be an absolute URL.');}
  if(origin.origin!==config.origin||origin.username||origin.password)throw new Error('APP_ORIGIN must contain only the scheme and host, with no path, credentials, query or trailing slash.');

@@ -1,0 +1,14 @@
+/* All detail surfaces share one centered, spacious bubble. */
+.detail{inset:4vh 0 auto;margin:auto;width:min(1120px,94vw);height:92vh;max-height:92dvh;max-width:none;border:1px solid var(--n2);border-radius:28px;box-shadow:0 24px 100px #341c1c33}
+.detail-top{flex-shrink:0;padding:18px 28px;background:white}
+.detail-body{padding:28px 36px;min-height:0;scrollbar-gutter:stable}
+.detail .invoice-line{grid-template-columns:minmax(0,1fr) 100px 170px 44px;gap:14px}
+.detail .invoice-line label:first-child{grid-column:auto}
+.detail .invoice-line>button{grid-column:4;grid-row:1}
+.detail input,.detail select,.detail textarea{min-width:0;width:100%;box-sizing:border-box}
+.detail .inline-check input,.detail .check-field input{width:20px}
+.detail .invoice-line label{min-width:0}.detail .invoice-line input{padding:12px}
+.sort-submit{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px}.category-choices{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap}.category-choices button[aria-pressed=true]{background:var(--hunter-green);color:white}
+.catalog-toast{position:fixed;right:24px;bottom:24px;z-index:80;background:var(--dark-coffee);color:white;border-radius:16px;padding:14px 18px;display:flex;align-items:center;gap:20px;box-shadow:0 8px 30px #341c1c33}.catalog-toast button{background:var(--icy-aqua);color:var(--dark-coffee);min-height:36px;padding:6px 14px}.save-status{font-size:.8rem;color:var(--hunter-green);margin-left:auto;margin-right:20px}.save-status.failed{color:#a22626}
+.gst-toggle{display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--n1);padding:16px;border-radius:16px}.rate-variant-select{max-width:430px;width:100%}
+@media(max-width:767px){.detail{inset:2dvh 0 auto;width:96vw;height:96dvh;max-height:96dvh;border-radius:20px}.detail-top{padding:12px 16px}.detail-body{padding:20px 16px}.detail .invoice-line{grid-template-columns:minmax(70px,1fr) minmax(120px,1.5fr) 40px;gap:12px}.detail .invoice-line label:first-child{grid-column:1/-1}.detail .invoice-line>button{grid-column:3;grid-row:2}.detail .invoice-line .line-pricing{grid-column:1/-1}.catalog-toast{bottom:88px;left:12px;right:12px;font-size:.85rem}.save-status{margin-right:8px;font-size:.7rem}.detail .invoice-fields{grid-template-columns:1fr}.gst-toggle{flex-wrap:wrap}}

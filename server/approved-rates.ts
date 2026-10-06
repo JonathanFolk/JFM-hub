@@ -80,3 +80,15 @@ const standardGuidance:Omit<RateGuidance,'profile'>[]=[
  {id:'approved-2026-q2-basic-1000-gap',category:'Real Estate',service:'Basic photo',minSqft:1000,maxSqft:1000,currency:'CAD',lowerCents:null,upperCents:null,note:'The sheet says under 1,000 and then 1,001–2,500 sq ft. Confirm the price for exactly 1,000 sq ft.',source:photo}
 ];
 export const approvedGuidance:RateGuidance[]=[...standardGuidance.map(item=>({...item,profile:'standard' as const})),...standardGuidance.map(item=>({...item,id:item.id.replace('approved-2026-q2','legacy-2026-q2'),profile:'legacy' as const,source:item.source.includes('Video')?'2026 Q2 Legacy Video':'2026 Q2 Legacy Photo',lowerCents:item.id==='approved-2026-q2-premium-over-7500'?null:item.lowerCents,upperCents:item.id==='approved-2026-q2-premium-over-7500'?null:item.upperCents,note:item.id==='approved-2026-q2-premium-over-7500'?'Legacy premium photo above 7,500 sq ft requires a confirmed custom price.':item.note}))];
+
+export function commercialPhotoRates():Rate[]{
+ const rows:[string,number,Rate['unit'],string][]=[
+  ['Developer Residential — staged',750,'job',''],['Developer Residential — vacant',350,'job',''],
+  ['Commercial Exterior — on-site base',450,'job','Architectural-style photography.'],['Commercial Exterior — after-hours twilight',150,'job','Only when requested.'],
+  ['Commercial Exterior — edited deliverable',20,'image','No object-removal Photoshop.'],['Commercial Exterior — advanced Photoshop',25,'image','Additional to normal editing, per affected image.'],
+  ['Commercial Exterior — drone launch',200,'job','DJI Mavic 4 Pro Telephoto Series. Complimentary Transport Canada airspace unlocking (NAV Canada / ATC).'],
+  ['Interior Design S — short visit',750,'job','No image cap. Confirm short-visit duration.'],['Interior Design S — 4 hours',1250,'job','No image cap.'],
+  ['Interior Design L — short visit',750,'job','20-image allowance versus no cap needs owner confirmation.'],['Interior Design L — 4 hours',1250,'job','30-image allowance versus no cap needs owner confirmation.']
+ ];
+ return rows.map(([service,dollars,unit,note],index)=>({id:`commercial-photo-2026-09-${index}`,profile:'standard',category:'Commercial',service,squareFootageRange:'',minSqft:null,maxSqft:null,currency:'CAD',unitPriceCents:dollars*100,unit,source:'Owner update · 2026-09-26',note,updatedAt:'2026-09-26T00:00:00.000Z'}));
+}

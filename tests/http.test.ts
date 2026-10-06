@@ -46,6 +46,18 @@ test('HTTP serves the app, excludes secrets, and rejects cross-origin changes',a
  const deletedDashboard=await (await fetch(origin+'/api/dashboard')).json();assert.equal(deletedDashboard.jobs.length,0);assert.equal(deletedDashboard.invoices.length,0);assert.equal(deletedDashboard.deletedItems.length,1);
  const restoreResponse=await fetch(origin+`/api/deleted/${deletedDashboard.deletedItems[0].reviewId}/restore`,{method:'POST',headers:mutationHeaders,body:'{}'});assert.equal(restoreResponse.status,200);
  const restoredDashboard=await (await fetch(origin+'/api/dashboard')).json();assert.equal(restoredDashboard.jobs.length,1);assert.equal(restoredDashboard.invoices.length,1);
+ // Completed jobs normally hide stale reviews, but cancellation alerts must remain visible.
+ const cancellationStore=new Store(join(dir,'hub.sqlite'));
+ try{
+  const before=cancellationStore.invoices();
+  cancellationStore.db.prepare('INSERT INTO completed_jobs VALUES(?,?)').run(invoiceJobId,JSON.stringify({jobId:invoiceJobId,row:{row:7,number:'26001',client:'Synthetic Client',date:'2026-09-21',totalCents:78750,paid:true,notes:'Synthetic property',orders:''},spreadsheetId:'test',gid:1,readAt:now,matchedAt:now,basis:'Synthetic match'}));
+  cancellationStore.apply('test',[{id:'invoice-job',title:'',start:'',end:'',location:'',status:'cancelled'}],{googleDeletionEvidence:true});
+  assert.deepEqual(cancellationStore.invoices(),before);
+ }finally{cancellationStore.close();}
+ const cancelledDashboard=await (await fetch(origin+'/api/dashboard')).json();
+ assert.equal(cancelledDashboard.completions.length,1);assert.equal(cancelledDashboard.jobs.length,1);assert.equal(cancelledDashboard.deletedItems.length,0);
+ assert.ok(cancelledDashboard.reviews.some((r:any)=>r.jobId===invoiceJobId&&r.kind==='Calendar cancellation'&&r.status==='open'));
+ assert.ok(!cancelledDashboard.reviews.some((r:any)=>r.jobId===invoiceJobId&&r.kind!=='Calendar cancellation'));
  assert.equal((await fetch(origin+'/api/unknown')).status,404);
  assert.equal((await fetch(origin+'/auth/callback?state=forged&code=forged')).status,400);
  assert.deepEqual(await (await fetch(origin+'/healthz')).json(),{ok:true});

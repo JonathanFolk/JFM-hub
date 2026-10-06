@@ -30,7 +30,7 @@ test('service aliases preserve client names and never infer drone from exterior'
 test('contractors require For J and hold/cancellation stay non-completed',()=>{
  assert.equal(parseBooking(raw('George PP with Test Client'),'g',undefined,'George'),null);
  const j=parseBooking(raw('TBR George PP For J with Test Client'),'g',undefined,'George')!;
- assert.equal(j.client,'Test Client');assert.equal(j.status,'To reschedule');assert.equal(j.due,null);
+ assert.equal(j.client,'Test Client');assert.equal(j.status,'Unconfirmed');assert.equal(j.due,null);
  assert.equal(parseBooking(raw('CANCEL PP Test Client'),'test')?.status,'Cancelled');
 });
 test('repeat import is stable; moving and deletion preserve history and review',()=>{
@@ -62,10 +62,10 @@ test('expired Google cursor restarts and paginates without retaining discarded r
  assert.equal(r.full,true);assert.equal(r.events.length,2);assert.equal(r.syncToken,'new-cursor');
  assert.ok(urls[0].includes('syncToken=expired'));assert.ok(!urls[1].includes('syncToken'));assert.ok(urls[2].includes('pageToken=page2'));
 });
-test('full Google synchronization uses a rolling two-year window',async()=>{
+test('full Google synchronization uses fourteen days back and six months forward',async()=>{
  let request='';const fetcher=(async(url:any)=>{request=String(url);return Response.json({items:[],nextSyncToken:'cursor'});}) as typeof fetch;
  await collectGoogleEvents('secret','primary',undefined,fetcher,DateTime.fromISO('2031-09-25T12:00:00-07:00') as DateTime<true>);
- const url=new URL(request);assert.ok(url.searchParams.get('timeMin')?.startsWith('2031-01-01'));assert.ok(url.searchParams.get('timeMax')?.startsWith('2033-01-01'));
+ const url=new URL(request);assert.ok(url.searchParams.get('timeMin')?.startsWith('2031-09-11'));assert.ok(url.searchParams.get('timeMax')?.startsWith('2032-03-25'));
 });
 test('partial Google download never returns a successful snapshot',async()=>{
  let i=0;const fetcher=(async()=>++i===1?Response.json({items:[{id:'a'}],nextPageToken:'next'}):new Response('',{status:503})) as typeof fetch;
@@ -116,7 +116,7 @@ test('approved rate suggestions require a single exact category, range, service 
 test('current CAD rate sheets seed once, and custom tiers never supply a fixed price',()=>{
  const dir=mkdtempSync(join(tmpdir(),'jfm-rates-')),path=join(dir,'hub.sqlite');
  try{
-  const s=new Store(path);assert.equal(s.rates().filter(rate=>rate.profile==='standard').length,43);assert.equal(s.rates().filter(rate=>rate.profile==='legacy').length,44);
+  const s=new Store(path);assert.equal(s.rates().filter(rate=>rate.profile==='standard').length,54);assert.equal(s.rates().filter(rate=>rate.profile==='legacy').length,44);
   const premium=s.rates().find(rate=>rate.profile==='standard'&&rate.service==='Premium photo'&&rate.squareFootageRange==='6,001–7,500 sq ft')!;assert.equal(premium.unitPriceCents,85000);assert.equal(premium.maxSqft,7500);
   const legacy=s.rates().find(rate=>rate.profile==='legacy'&&rate.service==='Premium photo'&&rate.squareFootageRange==='6,001–7,500 sq ft')!;assert.equal(legacy.unitPriceCents,65000);assert.equal(legacy.maxSqft,7500);
   s.apply('test',[raw()]);const invoice={...s.createInvoice(s.jobs()[0].id),pricingProfile:'standard' as const};
@@ -126,7 +126,7 @@ test('current CAD rate sheets seed once, and custom tiers never supply a fixed p
   const custom={...sort,squareFootageRange:'Over 7,500 sq ft'};
   assert.equal(rateSuggestions(invoice,custom,s.rates()).length,0);
   assert.equal(customPricePrompts(invoice,custom,s.guidance())[0]?.upperCents,125000);
-  s.close();const reopened=new Store(path);assert.equal(reopened.rates().length,87);reopened.close();
+  s.close();const reopened=new Store(path);assert.equal(reopened.rates().length,98);reopened.close();
  }finally{rmSync(dir,{recursive:true,force:true});}
 });
 test('email suggestions show only explicit currency amounts',()=>{

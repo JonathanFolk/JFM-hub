@@ -1,6 +1,7 @@
 import {DateTime} from 'luxon';
 import {createHash} from 'node:crypto';
 import type {RawEvent,Job} from './types.ts';
+import {plainNotes,isUnconfirmed,stripProvisional,extractArea,explicitAddons,addressFromNotes} from './workflow.ts';
 const aliases:Record<string,string[]>={PS:['Premium photo'],PP:['Premium photo'],EP:['Basic photo'],BP:['Basic photo'],BPS:['Basic photo'],VI:['Video'],PV:['Video'],EV:['Basic video'],BV:['Basic video'],DR:['Drone'],FP:['Floor plan'], '2D':['Floor plan'],'3D':['3D floor plan'], '3DFP':['3D floor plan'],TL:['Twilight'],PSVI:['Premium photo','Video'],PSDR:['Premium photo','Drone'],PSDRVI:['Premium photo','Drone','Video']};
 const modifiers = new Set(['REVISIT','RESHOOT','RUSH','EXT','EXTERIOR','ONLY','FLEXIBLE','NEIGHBORHOOD','NEIGHBOURHOOD','WEATHER','PPE','NOTE']);
 export const stableId=(source:string,id:string)=>createHash('sha256').update(source+'\0'+id).digest('hex').slice(0,32);
@@ -22,16 +23,22 @@ export function deadline(start:string,services:string[],holidays:string[]=[]):{d
 }
 export function parseBooking(raw:RawEvent,source:string,previous?:Job,contractor?:string):Job|null {
   let text=(raw.title||'').replace(/\s+/g,' ').trim();
+  if(!raw.location)raw={...raw,location:addressFromNotes(raw.description||'')};
   const sourceId=raw.id,id=stableId(source,sourceId);
-  if(/^\[|^#\d/.test(text))return null;
+  // Explicit tombstones must survive title filters and contractor gates.
+  if(raw.status==='cancelled'&&previous)return {...previous,status:'Cancelled',due:null,start:raw.start||previous.start,end:raw.end||previous.end,issues:[...new Set([...previous.issues,'Cancellation requires review; no fee applied'])],updatedAt:new Date().toISOString()};
+  if(/^\[|^#\d/.test(text)&&!/^\[(?:HOLD|TENTATIVE|WEATHER|TBR|TBD)\]/i.test(text))return null;
+  text=text.replace(/^\[(HOLD|TENTATIVE|WEATHER|TBR|TBD)\]\s*/i,'$1 ');
   const cancelled=raw.status==='cancelled'||/^CANCEL(?:LED)?\b/i.test(text);
-  const held=/^(?:HOLD|TBR|RESCHEDULE|RESCHEUDLE)\b/i.test(text);
+  const held=isUnconfirmed(text);
   if(cancelled&&previous) return {...previous,title:previous.title,status:'Cancelled',due:null,start:raw.start||previous.start,end:raw.end||previous.end,issues:[...new Set([...previous.issues,'Cancellation requires review; no fee applied'])],updatedAt:new Date().toISOString()};
-  if(contractor&&!/\bfor\s+j\b/i.test(text))return null;
+  const floorSource=contractor==='3D Elevate';
+  if(contractor&&!(floorSource?/\bFP\s+for\s+(?:Jon|J)\b/i:/\bfor\s+j\b/i).test(text))return null;
   if(!text&&cancelled)return null; // Unrelated Google deletion: only a tombstone.
   const services:string[]=[],notes:string[]=[],issues:string[]=[];
-  let body=text.replace(/^(?:CANCEL(?:LED)?(?: ON SITE)?|HOLD|TBR|RESCHEDULE|RESCHEUDLE)\b\s*/i,'');
-  if(contractor){
+  let body=stripProvisional(text).replace(/^CANCEL(?:LED)?(?: ON SITE)?\b\s*/i,'');
+  if(floorSource)body=body.replace(/\bFP\s+for\s+(?:Jon|J)\b\s*(?:with\s+)?/i,'FP ');
+  if(contractor&&!floorSource){
     if(!body.toLowerCase().startsWith(contractor.toLowerCase()+' '))issues.push('Contractor naming pattern needs review');
     const escaped=contractor.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
     body=body.replace(new RegExp('^'+escaped+'\\s+','i'),'');
@@ -52,8 +59,8 @@ export function parseBooking(raw:RawEvent,source:string,previous?:Job,contractor
   if(!contractor&&!candidatePrefix&&!previous)return null;
   if(!serviceStarted&&!previous&&!contractor)return null;
   if(!serviceStarted&&contractor)issues.push('Requested services and contractor naming need review');
-  let client=clientParts.join(' ').replace(/\b\d+(?:\.\d+)?k?\s*(?:sf|sqft)\b/ig,'').replace(/[<>]/g,'').replace(/\s+/g,' ').trim();
-  if(contractor){const named=body.split(/\bfor\s+j\s+with\s+/i);client=named.length===2?named[1].trim():'';}
+  let client=clientParts.join(' ').replace(/\b(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*k?\s*(?:sf|sq\.?\s*ft\.?|square\s+feet)\b/ig,'').replace(/[<>]/g,'').replace(/\s+/g,' ').trim();
+  if(contractor&&!floorSource){const named=body.split(/\bfor\s+j\s+with\s+/i);client=named.length===2?named[1].trim():'';}
   if(/^Day time/i.test(client)){client=client.replace(/^Day time\s+twilight\s*/i,'');notes.push('Twilight requested');services.push('Twilight');}
   if(!client)issues.push('Client needs identifying');
   if(/\b(?:Design|Homes|Projects|Contracting|Marketing|Development)\b/i.test(client))issues.push('Confirm pricing profile and agreed quote');
@@ -63,9 +70,13 @@ export function parseBooking(raw:RawEvent,source:string,previous?:Job,contractor
   if(cancelled)issues.push('Cancellation requires review; no fee applied');
   if(held)issues.push('Held or rescheduled booking; do not treat as completed');
   if(/\b(?:RBC VIP Cashout|Jonathan with|Ali)\b/i.test(client))issues.push('Confirm this is a client booking');
-  const unique=[...new Set(services)];
+  const description=plainNotes(raw.description??previous?.description??'');
+  const area=extractArea(`${text}\n${description}`);if(area.areaIssue)issues.push(area.areaIssue);
+  services.push(...explicitAddons(description));
+  let unique=[...new Set(services)];
+  if(unique.some(s=>s==='Essentials Aerial Drone (<6 Photos)'||s==='Full Aerial Drone (<15 Photos)'))unique=unique.filter(s=>s!=='Drone');
   const dates=deadline(raw.start,unique);
   if(issues.includes('Confirm pricing profile and agreed quote')){dates.due=null;dates.deadlineBasis='Confirm turnaround for this pricing profile';}
-  const needsReview=issues.includes('Confirm this is a client booking')||!!contractor&&issues.some(i=>/naming|For J|identifying/.test(i));
-  return {id,source,sourceId,title:text,client,services:unique,notes:[...new Set(notes)],start:raw.start,end:raw.end,location:raw.location||'',status:cancelled?'Cancelled':/^(?:TBR|RESCHEDULE|RESCHEUDLE)\b/i.test(text)?'To reschedule':held?'Held':needsReview?'Needs review':'Booked',issues,due:cancelled||held||needsReview?null:dates.due,deadlineBasis:dates.deadlineBasis,updatedAt:new Date().toISOString()};
+  const needsReview=issues.includes('Confirm this is a client booking')||!!contractor&&!floorSource&&issues.some(i=>/naming|For J|identifying/.test(i));
+  return {id,source,sourceId,title:text,client,services:unique,notes:[...new Set(notes)],description,...area,...(floorSource?{floorPlanSource:true}:{}),start:raw.start,end:raw.end,location:raw.location||'',status:cancelled?'Cancelled':held?'Unconfirmed':needsReview?'Needs review':'Booked',issues,due:cancelled||held||needsReview?null:dates.due,deadlineBasis:dates.deadlineBasis,updatedAt:new Date().toISOString()};
 }

@@ -28,7 +28,7 @@ test('titleless contractor cancellation preserves the prior authorized booking',
  assert.equal(parseBooking(event('other','George PP with Other Client'),'g',undefined,'George'),null);
 });
 test('unknown For J naming is held for review instead of silently losing a JFM request',()=>{
- const j=parseBooking(event('g','Unknown operator CUSTOM For J with Synthetic Client'),'g',undefined,'3D Elevate');
+ const j=parseBooking(event('g','Unknown operator CUSTOM For J with Synthetic Client'),'g',undefined,'George');
  assert.equal(j?.status,'Needs review');assert.equal(j?.client,'Synthetic Client');assert.equal(j?.due,null);
  const missing=parseBooking(event('g','George PP For J'),'g',undefined,'George');assert.equal(missing?.client,'');assert.equal(missing?.status,'Needs review');
 });

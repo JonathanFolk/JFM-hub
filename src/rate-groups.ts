@@ -1,0 +1,2 @@
+import type {Rate} from '../server/types';
+export function groupRates(rates:Rate[]){const groups=new Map<string,Rate[]>();for(const rate of rates){const key=[rate.category,rate.service.trim().toLowerCase(),rate.currency,rate.unit].join('|');groups.set(key,[...(groups.get(key)||[]),rate]);}return [...groups.values()].map(group=>group.sort((a,b)=>Number(a.profile==='legacy')-Number(b.profile==='legacy')||(a.minSqft??0)-(b.minSqft??0)));}

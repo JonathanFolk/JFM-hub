@@ -1,5 +1,11 @@
 # JFM Hub — Phase 2
 
+## Unreleased quality-of-life preview
+
+September 27 adds centered detail bubbles, persistent invoice edits, default 5% GST with a toggle, Submit/Submit + Invoice with Undo, grouped rate dropdowns, and a Sheet-backed Complete section. See [the local update notes](LOCAL_UPDATE_SEP27.md) for checks and the approved explicit-Google-deletion policy, which protects drafts and completed records for review.
+
+Run `pnpm preview` and open http://127.0.0.1:4313 for the working update on a separate, token-free data copy. The preview includes the supplied palette, status ribbons, address subtitles, simplified RE packages, Commercial subtypes and saved invoice add-ons. It does not push changes to the hosted Hub. See [preview instructions](preview/README.md) and the [update review checklist](NEXT_UPDATE_REVIEW.md). The release description below records the prior Phase 2 baseline.
+
 Phase 1 was accepted and merged to `main` on September 25, 2026. Phase 2 adds controlled invoice drafting while preserving the hosted calendar, review and recovery safeguards.
 
 The Review queue now sorts shoots into Real Estate, Commercial, Design or Other; Real Estate requires a square-footage band. Sorting a booked shoot creates a private invoice draft. Deleting a shoot moves it and its linked Hub records to Recently Deleted, where it can be restored. Calendar reimports do not unhide it. The Rates view stores 43 Standard and 44 Legacy 2026 CAD prices from the supplied photo and video PDFs. Invoice drafts now default to the matching Standard or Legacy sheet from uniquely matched imported customer history; general real-estate clients without a Legacy match default to Standard, while ambiguous identities require review. The owner can override pricing for a billing client, an entire invoice, or an individual line. Changing the sheet does not silently replace amounts already entered: matching sheet prices can be applied per line or in one explicit bulk action. Published contact-for-quote cases and ambiguous boundary values prompt a custom amount instead. Premium photo above 7,500 sq ft displays the owner's CAD $1,000–$1,250 expectation for Standard work as guidance, not a fixed price. Commercial drafts can show explicit quote amounts from a separately connected read-only Gmail account (`info@jonathanfolk.ca`); each suggestion must be reviewed and applied by hand. The four supplied PDFs are retained locally under ignored `data/rates-source/` for provenance.
@@ -22,7 +28,7 @@ pnpm import:reference '/path/to/jfm hub claude.zip' data/hub.sqlite
 APP_MODE=local pnpm start
 ```
 
-Local mode binds to 127.0.0.1 and deliberately has no sign-in. Never tunnel or expose local mode. It is available only while the process and Mac are running. The active preview in this task uses port 4312; a normal start defaults to 4310.
+Local mode binds to 127.0.0.1 and deliberately has no sign-in. Never tunnel or expose local mode. It is available only while the process and Mac are running. The isolated quality-of-life preview uses port 4313; a normal start defaults to 4310.
 
 On this Mac, Node is bundled at `/Users/jonathanfolk/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node`. If package-manager script execution is unavailable, use that executable with `node_modules/typescript/bin/tsc --noEmit`, `node_modules/vite/bin/vite.js build`, or `--import tsx server/index.ts` from this directory.
 

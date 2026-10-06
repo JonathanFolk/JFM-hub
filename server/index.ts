@@ -12,6 +12,7 @@ import type {InvoiceDraft} from './types.ts';
 import {commercialEmailPrices} from './gmail.ts';
 import {syncInvoiceEvidence} from './reconciliation.ts';
 import {pricingQuestions,referenceForClient} from './reference.ts';
+import {normalizeSortDetails} from './workflow.ts';
 validateConfig();const store=new Store(config.database);ensureCalendarSources(store);const app=express();
 app.disable('x-powered-by');app.use(express.json({limit:'20kb'}));
 app.use((req,res,next)=>{
@@ -22,13 +23,14 @@ app.use((req,res,next)=>{
  if(!['GET','HEAD','OPTIONS'].includes(req.method)&&(req.headers.origin!==config.origin||req.headers['x-jfm-request']!=='1'))return res.status(403).json({error:'Request must come from this Hub.'});
  next();
 });
+if(config.preview)app.use('/auth',(_req,res)=>res.status(403).send('Google connections are disabled in this isolated preview.'));
 authRoutes(app,store);
 app.get('/healthz',(_req,res)=>res.json({ok:true}));
-app.get('/api/session',(req,res)=>res.json({signedIn:signedIn(req,store),local:config.mode==='local',googleConfigured:!!config.clientId&&!!config.clientSecret&&validEncryptionKey()}));
+app.get('/api/session',(req,res)=>res.json({signedIn:signedIn(req,store),local:config.mode==='local',preview:config.preview,googleConfigured:!!config.clientId&&!!config.clientSecret&&validEncryptionKey()}));
 app.use('/api',(req,res,next)=>signedIn(req,store)?next():res.status(401).json({error:'Sign in to open your Hub.'}));
 app.get('/api/dashboard',(_req,res)=>{
  const active=store.getSetting('active-calendar')||'calendar-export';const jobs=currentJobs(store);const allowed=new Set(calendarSources().map(sourceId));const ids=new Set(jobs.map(j=>j.id));
- const deletedReviews=store.deletedReviewIds();res.json({jobs,reviews:store.reviews().filter(r=>!deletedReviews.has(r.id)&&(!r.jobId||ids.has(r.jobId))),reconciliation:store.reconciliationSuggestions(),invoices:store.invoices().filter(invoice=>ids.has(invoice.jobId)),sorts:store.sorts().filter(sort=>ids.has(sort.jobId)),deletedItems:store.deletedItems(),rates:store.rates(),connections:store.syncs().filter(s=>!s.id.startsWith('google-calendar')||allowed.has(s.id)).map(({syncToken,...state})=>state),mode:active==='calendar-export'?'snapshot':'live',snapshotNote:store.getSetting('snapshot-note'),calendarConnected:!!store.getSetting('calendar-refresh'),gmailConnected:!!store.getSetting('gmail-refresh'),sheetsConnected:!!store.getSetting('sheets-refresh'),invoicingSpreadsheetId:config.invoicingSpreadsheetId,googleConfigured:!!config.clientId&&!!config.clientSecret&&validEncryptionKey(),secondaryBackupConfigured:!!config.secondaryBackupDir,now:new Date().toISOString(),lastBackup:store.sync('backup')?.lastSuccess||null});
+ const deletedReviews=store.deletedReviewIds();const completions=store.completions().filter(c=>ids.has(c.jobId)),completedIds=new Set(completions.map(c=>c.jobId));res.json({jobs,completions,reviews:store.reviews().filter(r=>!deletedReviews.has(r.id)&&(!r.jobId||ids.has(r.jobId)&&(!completedIds.has(r.jobId)||r.kind==='Calendar cancellation'))),reconciliation:store.reconciliationSuggestions(),invoices:store.invoices().filter(invoice=>ids.has(invoice.jobId)&&!completedIds.has(invoice.jobId)),sorts:store.sorts().filter(sort=>ids.has(sort.jobId)),deletedItems:store.deletedItems(),rates:store.rates(),connections:store.syncs().filter(s=>config.preview||!s.id.startsWith('google-calendar')||allowed.has(s.id)).map(({syncToken,...state})=>state),mode:config.preview||active==='calendar-export'?'snapshot':'live',snapshotNote:store.getSetting('snapshot-note'),calendarConnected:!!store.getSetting('calendar-refresh'),gmailConnected:!!store.getSetting('gmail-refresh'),sheetsConnected:!!store.getSetting('sheets-refresh'),invoicingSpreadsheetId:config.invoicingSpreadsheetId,googleConfigured:!!config.clientId&&!!config.clientSecret&&validEncryptionKey(),secondaryBackupConfigured:!!config.secondaryBackupDir,now:new Date().toISOString(),lastBackup:store.sync('backup')?.lastSuccess||null});
 });
 app.post('/api/reconciliation/sync',async(req,res)=>{if(req.body?.rescan!==undefined&&typeof req.body.rescan!=='boolean')return res.status(400).json({error:'Invalid rescan option.'});try{res.json(await syncInvoiceEvidence(store,req.body?.rescan===true));}catch(error){res.status(503).json({error:error instanceof Error?error.message:'Invoice evidence sync failed.'});}});
 app.post('/api/reconciliation/:id/review',(req,res)=>{const status=req.body?.status,resolution=req.body?.resolution??'';if(!['confirmed','dismissed'].includes(status)||typeof resolution!=='string'||resolution.length>1000)return res.status(400).json({error:'Choose Confirm or Dismiss and keep the note under 1,000 characters.'});try{res.json(store.resolveReconciliationSuggestion(String(req.params.id),status,resolution.trim()));}catch(error){res.status(409).json({error:error instanceof Error?error.message:'Could not review suggestion.'});}});
@@ -37,8 +39,15 @@ app.post('/api/reviews/:id',(req,res)=>{const {status,resolution=''}=req.body||{
 app.post('/api/reviews/:id/sort',(req,res)=>{
  const {category,squareFootageRange='',resolution=''}=req.body||{};
  if(!shootCategories.includes(category)||typeof squareFootageRange!=='string'||category==='Real Estate'&&!squareFootageRanges.includes(squareFootageRange)||category!=='Real Estate'&&squareFootageRange||typeof resolution!=='string'||resolution.length>1000)return res.status(400).json({error:'Choose a category and, for real estate, a square-footage range.'});
- try{store.sortReview(String(req.params.id),category,squareFootageRange,resolution.trim());res.json({ok:true});}catch(error){res.status(409).json({error:error instanceof Error?error.message:'Could not sort this item.'});}
+ try{const details=category==='Commercial'?normalizeSortDetails(req.body):{};store.sortReview(String(req.params.id),category,squareFootageRange,resolution.trim(),details);res.json({ok:true});}catch(error){res.status(409).json({error:error instanceof Error?error.message:'Could not sort this item.'});}
 });
+app.post('/api/jobs/:id/sort',(req,res)=>{
+ const job=store.jobs().find(j=>j.id===req.params.id);if(!job||store.deletedJobIds().has(job.id))return res.status(404).json({error:'Booking not found.'});
+ const {category,squareFootageRange='',resolution=''}=req.body||{};if(!shootCategories.includes(category)||typeof squareFootageRange!=='string'||category==='Real Estate'&&!squareFootageRanges.includes(squareFootageRange)||category!=='Real Estate'&&squareFootageRange!==''||typeof resolution!=='string'||resolution.length>1000)return res.status(400).json({error:'Choose a category and package.'});
+ try{const details=category==='Commercial'?normalizeSortDetails(req.body):{};res.json(store.catalogue(job.id,category,squareFootageRange,resolution.trim(),details));}catch(error){res.status(409).json({error:error instanceof Error?error.message:'Could not sort booking.'});}
+});
+app.post('/api/complete/:id/reopen',(req,res)=>{try{store.reopenJob(String(req.params.id));res.json({ok:true});}catch(error){res.status(409).json({error:error instanceof Error?error.message:'Could not reopen job.'});}});
+app.post('/api/catalogue/undo',(req,res)=>{try{store.undoCatalogue(String(req.body?.token||''));res.json({ok:true});}catch(error){res.status(409).json({error:error instanceof Error?error.message:'Could not undo selection.'});}});
 app.post('/api/reviews/:id/delete',(req,res)=>{try{store.deleteReview(String(req.params.id));res.json({ok:true});}catch(error){res.status(409).json({error:error instanceof Error?error.message:'Could not move this item to Recently Deleted.'});}});
 app.post('/api/jobs/:id/delete',(req,res)=>{try{store.deleteJob(String(req.params.id));res.json({ok:true});}catch(error){res.status(409).json({error:error instanceof Error?error.message:'Could not move this shoot to Recently Deleted.'});}});
 app.post('/api/deleted/:id/restore',(req,res)=>{try{store.restoreReview(String(req.params.id));res.json({ok:true});}catch(error){res.status(404).json({error:error instanceof Error?error.message:'Deleted item not found.'});}});
@@ -73,7 +82,7 @@ app.use('/api',(_req,res)=>res.status(404).json({error:'Unknown operation.'}));
 app.use(express.static(dist,{index:false,dotfiles:'deny'}));
 app.get('/{*path}',(_req,res)=>res.sendFile('index.html',{root:dist}));
 app.use((_err:unknown,_req:express.Request,res:express.Response,_next:express.NextFunction)=>res.status(500).json({error:'That operation could not finish. Your source records have not been changed.'}));
-const scheduler=startScheduler(store);
+const scheduler=config.preview?undefined:startScheduler(store);
 const server=app.listen(config.port,'127.0.0.1',()=>console.log(`JFM Hub ready at ${config.origin} (${config.mode})`));
 let stopping=false;const stop=()=>{if(stopping)return;stopping=true;clearInterval(scheduler);server.close(()=>{store.close();process.exit(0);});};
 process.on('SIGTERM',stop);process.on('SIGINT',stop);
