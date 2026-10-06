@@ -1,0 +1,36 @@
+/* Use the site's Gotham Book face for dates, with muted address-style labels. */
+.appointment-date{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;width:64px;flex:0 0 64px;color:var(--dark-coffee);font-family:var(--sans);font-weight:400;font-style:normal;text-align:center;line-height:1;letter-spacing:0;font-variant-numeric:lining-nums tabular-nums}
+.appointment-date .appointment-month{font-size:17px;font-weight:400;line-height:1.1;letter-spacing:.04em;color:var(--n3)}
+.appointment-date .appointment-day{font-size:30px;font-weight:400;line-height:1}
+.appointment-date .appointment-weekday{font-size:16px;font-weight:400;line-height:1.15;letter-spacing:.04em;color:var(--n3)}
+.appointment-date-missing{color:var(--n3)}
+.review-table-head,.review-table-row{grid-template-columns:122px 64px minmax(0,2fr) minmax(90px,1fr) minmax(80px,.8fr) 20px}
+.review-table-row>.appointment-date{justify-self:center}
+.attention-panel .ribbon-row{display:grid;grid-template-columns:64px minmax(0,1fr) 18px;gap:10px 18px}
+.attention-panel .ribbon-row>.appointment-date{grid-column:1;grid-row:1/3;align-self:center}
+.attention-panel .ribbon-row>.review-ribbons{grid-column:2;grid-row:1;flex-direction:row;flex-wrap:wrap}
+.attention-panel .ribbon-row>.review-subject{grid-column:2;grid-row:2}
+.attention-panel .ribbon-row>.row-end{grid-column:3;grid-row:1/3}
+.job-row .job-date{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center}
+.job-row .job-date>small{margin:0;font-size:.7rem;white-space:nowrap}
+.agenda-row>.appointment-date{margin-right:4px}
+.invoice-dated-row{gap:20px}.invoice-dated-row>.invoice-subject{min-width:0;flex:1}
+.completed-dated-row{grid-template-columns:64px minmax(0,1fr) auto;gap:24px;align-items:start}
+@media(min-width:768px) and (max-width:1023px){.review-table-head,.review-table-row{grid-template-columns:100px 64px minmax(0,2fr) minmax(70px,1fr) 75px 16px;gap:10px}}
+@media(max-width:767px){
+ .review-table-head{display:none}
+ .review-table-row{grid-template-columns:64px minmax(0,1fr) 18px;gap:8px 12px}
+ .review-table-row .review-ribbons{grid-column:2;grid-row:1}
+ .review-table-row>.appointment-date{grid-column:1;grid-row:1/5;align-self:center}
+ .review-table-row .review-subject{grid-column:2;grid-row:2}
+ .review-table-row .review-ordered{grid-column:2;grid-row:3}
+ .review-table-row .review-calendar{grid-column:2;grid-row:4}
+ .review-table-row .row-end{grid-column:3;grid-row:2}
+ .job-row .job-date{grid-column:1;grid-row:2/5;align-self:center}
+ .invoice-dated-row{display:grid;grid-template-columns:64px minmax(0,1fr);gap:8px 12px}
+ .invoice-dated-row>.appointment-date{grid-column:1;grid-row:1/3}
+ .invoice-dated-row>.invoice-subject{grid-column:2;grid-row:1}
+ .invoice-dated-row>.row-end{grid-column:2;grid-row:2;justify-content:flex-start;font-size:.75rem}
+ .completed-dated-row{grid-template-columns:64px minmax(0,1fr);gap:16px}
+ .completed-dated-row>.actions{grid-column:2;min-width:0}
+}

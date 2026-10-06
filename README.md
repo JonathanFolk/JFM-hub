@@ -2,6 +2,10 @@
 
 ## Unreleased quality-of-life preview
 
+The local draft now includes a one-time startup cleanup for Google bookings already stored as **Cancelled** before automatic cancellation handling existed, including appointments outside the sync window. They move out of Jobs/Review into recoverable Recently Deleted. Invoice drafts, completed records and linked financial records remain protected for cancellation review; prior manual restores are respected. This does not trash TBR/held bookings or treat missing events as proof of cancellation, and does not reconnect Google.
+
+Preview verification: 29 previously cancelled bookings, including Ffirth on September 19, moved to Recently Deleted. Invoice drafts, invoice history and completion records were unchanged. Recovery copy: `data/local-preview/before-legacy-cancellation-cleanup-v1.sqlite`. The cleanup has **not been deployed**; a future deployment will run the migration against the live database separately after backup.
+
 September 27 adds centered detail bubbles, persistent invoice edits, default 5% GST with a toggle, Submit/Submit + Invoice with Undo, grouped rate dropdowns, and a Sheet-backed Complete section. See [the local update notes](LOCAL_UPDATE_SEP27.md) for checks and the approved explicit-Google-deletion policy, which protects drafts and completed records for review.
 
 The quality-of-life update was deployed on October 5; see the [deployment record and remaining connection issues](DEPLOYMENT_OCT05.md). The preview's private completion cleanup was not migrated into production.

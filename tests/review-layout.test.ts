@@ -2,8 +2,20 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {ReviewSorter,ReviewNote} from '../src/WorkflowPanels.tsx';
+import {ReviewSorter,ReviewNote,BookingAddress} from '../src/WorkflowPanels.tsx';
 import {redundantReviewDetail} from '../src/review-display.ts';
+
+test('booking subtitle shows street and city without province, postal code or country',()=>{
+ const html=renderToStaticMarkup(React.createElement(BookingAddress,{location:'4508 Prince Albert St VANCOUVER, BC V5V4k2'}));
+ assert.equal(html,'<p class="caption booking-address">4508 Prince Albert St VANCOUVER</p>');
+ const unit=renderToStaticMarkup(React.createElement(BookingAddress,{location:'Unit 3, 123 Test St, Vancouver, British Columbia V6B 1A1, Canada'}));
+ assert.equal(unit,'<p class="caption booking-address">Unit 3, 123 Test St, Vancouver</p>');
+});
+
+test('a missing booking address is clearly marked instead of invented',()=>{
+ const html=renderToStaticMarkup(React.createElement(BookingAddress,{location:''}));
+ assert.ok(html.includes('Address needs confirmation'));
+});
 
 test('sort controls place the recoverable trash action at the top without redundant guidance',()=>{
  const html=renderToStaticMarkup(React.createElement(ReviewSorter,{busy:false,onSort:()=>{},onDelete:()=>{}}));

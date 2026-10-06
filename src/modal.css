@@ -2,6 +2,7 @@
 .detail{inset:4vh 0 auto;margin:auto;width:min(1120px,94vw);height:92vh;max-height:92dvh;max-width:none;border:1px solid var(--n2);border-radius:28px;box-shadow:0 24px 100px #341c1c33}
 .detail-top{flex-shrink:0;padding:18px 28px;background:white}
 .detail-body{padding:28px 36px;min-height:0;scrollbar-gutter:stable}
+.detail-body>.booking-address{margin-top:-16px;margin-bottom:24px;overflow-wrap:anywhere}
 .detail .invoice-line{grid-template-columns:minmax(0,1fr) 100px 170px 44px;gap:14px}
 .detail .invoice-line label:first-child{grid-column:auto}
 .detail .invoice-line>button{grid-column:4;grid-row:1}

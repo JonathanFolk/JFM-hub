@@ -52,6 +52,33 @@ export class Store {
    for(const old of this.sorts()){if(old.category==='Design'){this.db.prepare('UPDATE shoot_sort SET payload=? WHERE job_id=?').run(JSON.stringify({...old,category:'Commercial'}),old.jobId);const job=this.jobs().find(j=>j.id===old.jobId);if(job)this.review({id:'commercial-type-'+job.id,kind:'Commercial category',jobId:job.id,title:job.client,source:job.source,detail:'Choose a commercial subtype for this former Design booking. Existing draft prices are preserved.',status:'open',updatedAt:new Date().toISOString()});}}
    this.enrichBookings();this.setSetting('workflow-v3','1');this.db.exec('COMMIT');
   }catch(error){this.db.exec('ROLLBACK');throw error;}}
+  this.cleanupLegacyCancellations();
+ }
+ cleanupLegacyCancellations(){
+  const migration='legacy-calendar-cancellations-v1';
+  if(this.getSetting(migration))return;
+  this.db.exec('BEGIN IMMEDIATE');
+  try{
+   const jobs=this.jobs(),deleted=this.deletedJobIds();
+   const financial=new Set([...this.invoices().map(i=>i.jobId),...this.completions().map(c=>c.jobId)]);
+   for(const job of jobs){
+    if(job.status!=='Cancelled'||!/^google-calendar(?:-|$)/.test(job.source)||deleted.has(job.id)||this.getSetting('calendar-deletion-'+job.id))continue;
+    // Respect a prior explicit restore, including trash entries created from a review.
+    const restoreIds=[`job-${job.id}`,...this.reviews().filter(r=>r.jobId===job.id).map(r=>r.id)];
+    if(restoreIds.some(id=>this.db.prepare("SELECT 1 FROM audit WHERE action='item-restored' AND entity_id=?").get(id)))continue;
+    // Enrichment may already have unlinked cancelled floor-plan evidence.
+    const history=(this.db.prepare('SELECT payload FROM history WHERE job_id=?').all(job.id) as {payload:string}[]).map(r=>JSON.parse(r.payload) as Job);
+    const linkedIds=new Set([job.id,...[job,...history].flatMap(j=>j.supportingJobId?[j.supportingJobId]:[]),...jobs.filter(j=>j.supportingJobId===job.id).map(j=>j.id)]);
+    const protectedIds=[...linkedIds].filter(id=>financial.has(id));
+    const at=new Date().toISOString();
+    this.setSetting('calendar-deletion-'+job.id,JSON.stringify({source:job.source,eventId:job.sourceId,observedAt:at,basis:'Previously stored Cancelled status; owner-approved legacy cleanup, not a fresh Google read.',outcome:protectedIds.length?'protected-review':'recently-deleted',protectedIds}));
+    if(protectedIds.length){
+     for(const id of new Set([job.id,...protectedIds])){const target=jobs.find(j=>j.id===id);if(!target)continue;this.review({id:'calendar-cancel-'+job.id+'-'+id,kind:'Calendar cancellation',jobId:id,title:target.client,source:job.source,detail:'This booking was already recorded as cancelled before automatic cleanup. A linked invoice draft or completed record protects it from removal. Review the cancellation; financial records were preserved. No fresh Google verification was performed.',status:'open',updatedAt:at},true);}
+     this.audit('legacy-calendar-cancellation-protected',job.id);
+    }else{this.deleteJob(job.id);this.audit('legacy-calendar-cancellation-auto-trashed',job.id);}
+   }
+   this.setSetting(migration,'1');this.db.exec('COMMIT');
+  }catch(error){this.db.exec('ROLLBACK');throw error;}
  }
  getSetting(key:string){return (this.db.prepare('SELECT value FROM settings WHERE key=?').get(key) as {value:string}|undefined)?.value;}
  catalogueSnapshot(jobId:string){return {sort:this.db.prepare('SELECT * FROM shoot_sort WHERE job_id=?').get(jobId)||null,invoice:this.db.prepare('SELECT * FROM invoice_drafts WHERE job_id=?').get(jobId)||null,reviews:(this.db.prepare('SELECT * FROM reviews ORDER BY id').all() as {id:string;payload:string}[]).filter(r=>JSON.parse(r.payload).jobId===jobId),seen:this.getSetting('auto-services-'+jobId)||null};}

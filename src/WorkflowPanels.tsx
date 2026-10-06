@@ -3,9 +3,14 @@ import {shootCategories,squareFootageRanges} from '../server/types';
 import type {CustomPricePrompt,EmailPriceSuggestion,InvoiceDraft,InvoiceLine,InvoiceReference,PriceSuggestion,PricingProfile,Rate,ShootCategory,SortDetails} from '../server/types';
 import {CommercialFields,TrashIcon} from './WorkflowControls';
 import {groupRates} from './rate-groups';
+import {streetCity} from './review-display';
 
 async function request(path:string,body?:unknown){const response=await fetch('/api/'+path,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json','X-JFM-Request':'1'},body:body===undefined?undefined:JSON.stringify(body)});const data=await response.json();if(!response.ok)throw new Error(data.error||'Request failed');return data;}
 const money=(cents:number,currency:'CAD'|'USD')=>new Intl.NumberFormat('en-CA',{style:'currency',currency}).format(cents/100);
+
+export function BookingAddress({location}:{location:string}){
+ return <p className="caption booking-address">{streetCity(location)}</p>;
+}
 
 export function ReviewNote({note,onNote}:{note:string;onNote:(value:string)=>void}){
  return <div className="review-form"><label htmlFor="review-note">Review note <span className="caption">(optional)</span></label><textarea id="review-note" value={note} onChange={event=>onNote(event.target.value)} maxLength={1000} placeholder="Add context if it will be useful later"/></div>;
