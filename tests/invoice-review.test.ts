@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {discoverInvoiceDrafts,reviewItem,reviewPdf,reviewPdfMapping,reviewQueueWithToken} from '../server/invoice-review.ts';
 import type {ReviewMapping} from '../server/invoice-review.ts';
 import {Store} from '../server/store.ts';
+import {prepareInvoiceSend,sendEligibility} from '../server/invoice-send.ts';
 
 const mapping:ReviewMapping={number:'12345',draftId:'r-test',threadId:'thread-1',draftMessageId:'draft-message'};
 const pdf=Buffer.from('%PDF-1.7\ninvoice');
@@ -14,6 +15,23 @@ test('review reads the existing Gmail draft and its exact PDF without creating o
  const fetcher=mockFetch(),item=await reviewItem(mapping,'token',fetcher);
  assert.equal(item.state,'ready');assert.equal(item.to,'client@example.com');assert.equal(item.cc,'accounts@example.com');assert.equal(item.body,'Please review the invoice.');assert.equal(item.deliverySubject,'Media delivery');
  assert.ok(item.version);assert.deepEqual((await reviewPdf(mapping,'token',item.version!,fetcher)).bytes,pdf);
+});
+test('HTML-only mapped draft supplies review and confirmation text without changing Gmail MIME',async()=>{
+ const html=structuredClone(draft);
+ html.message.payload.parts=[{mimeType:'text/html',body:{data:Buffer.from('<div>Hi team!<br>Invoice attached.</div><div class="gmail_quote"><blockquote>Earlier delivery</blockquote></div>').toString('base64url')}},draft.message.payload.parts[1]];
+ const item=await reviewItem(mapping,'token',mockFetch(html));
+ assert.equal(item.bodyFromHtml,true);assert.equal(item.bodyHasOwnText,true);
+ assert.match(item.body||'',/Hi team!\nInvoice attached/);
+ assert.match(item.body||'',/Earlier delivery/);
+ const store=new Store(':memory:');try{
+  assert.equal(sendEligibility(item,store),undefined);
+  const confirmation=prepareInvoiceSend(store,item);
+  assert.equal(confirmation.bodyFromHtml,true);assert.match(confirmation.body,/Invoice attached/);
+ }finally{store.close();}
+ const quoteOnly=structuredClone(html);
+ quoteOnly.message.payload.parts[0].body.data=Buffer.from('<div class="gmail_quote"><blockquote>Earlier delivery</blockquote></div>').toString('base64url');
+ const quoted=await reviewItem(mapping,'token',mockFetch(quoteOnly));
+ const blocked=new Store(':memory:');try{assert.match(sendEligibility(quoted,blocked)||'',/body cannot be verified/);}finally{blocked.close();}
 });
 test('read-only PDF preview uses the saved draft association and exact current PDF',async()=>{
  const store=new Store(':memory:');

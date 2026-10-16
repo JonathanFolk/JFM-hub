@@ -3,16 +3,16 @@ import {readFileSync} from 'node:fs';
 import type {Store} from './store.ts';
 import {gmailAccessToken} from './gmail.ts';
 import {config} from './config.ts';
+import {emailTextPreview} from './email-preview.ts';
 
 export type ReviewMapping={number:string;draftId:string;threadId:string;draftMessageId?:string;deliveryMessageId?:string;dropboxUrl?:string};
 type Part={mimeType?:string;filename?:string;body?:{data?:string;attachmentId?:string;size?:number};parts?:Part[]};
 type Message={id?:string;threadId?:string;labelIds?:string[];payload?:Part&{headers?:{name:string;value:string}[]}};
 type Draft={id?:string;message?:Message};
-export type ReviewItem={number:string;draftId:string;threadId:string;messageId?:string;state:'ready'|'missing'|'changed-thread'|'unavailable'|'possibly-sent'|'needs-association'|'ambiguous';version?:string;subject?:string;to?:string;cc?:string;bcc?:string;body?:string;bodyTruncated?:boolean;filename?:string;deliverySubject?:string;deliveryFrom?:string;deliveryDate?:string;attachment?:boolean;otherAttachments?:boolean;warning?:string;gmailUrl:string;dropboxUrl?:string;source:'mapped'|'discovered'};
+export type ReviewItem={number:string;draftId:string;threadId:string;messageId?:string;state:'ready'|'missing'|'changed-thread'|'unavailable'|'possibly-sent'|'needs-association'|'ambiguous';version?:string;subject?:string;to?:string;cc?:string;bcc?:string;body?:string;bodyTruncated?:boolean;bodyFromHtml?:boolean;bodyHasOwnText?:boolean;filename?:string;deliverySubject?:string;deliveryFrom?:string;deliveryDate?:string;attachment?:boolean;otherAttachments?:boolean;warning?:string;gmailUrl:string;dropboxUrl?:string;source:'mapped'|'discovered'};
 const base='https://gmail.googleapis.com/gmail/v1/users/me';
 const header=(message:Message|undefined,name:string)=>message?.payload?.headers?.find(h=>h.name.toLowerCase()===name)?.value||'';
 const parts=(part:Part|undefined):Part[]=>part?[part,...(part.parts||[]).flatMap(parts)]:[];
-const plainBody=(message:Message)=>{const part=parts(message.payload).find(p=>p.mimeType==='text/plain'&&p.body?.data);return part?.body?.data?Buffer.from(part.body.data,'base64url').toString('utf8'):'';};
 const pdfParts=(message:Message)=>parts(message.payload).filter(part=>part.mimeType==='application/pdf'||/\.pdf$/i.test(part.filename||''));
 async function attachmentBytes(message:Message,part:Part,token:string,fetcher:typeof fetch):Promise<Buffer>{
  const data=part.body?.data||(part.body?.attachmentId?(await gmailGet<{data?:string}>(`messages/${encodeURIComponent(message.id||'')}/attachments/${encodeURIComponent(part.body.attachmentId)}`,token,fetcher))?.data:undefined);
@@ -67,7 +67,7 @@ export async function reviewItem(mapping:ReviewMapping,token:string,fetcher:type
   return item;
  }
  const message=draft.message,pdfs=parts(message.payload).filter(p=>p.mimeType==='application/pdf'||/\.pdf$/i.test(p.filename||''));
- const text=plainBody(message);item.messageId=message.id;item.version=(await currentVersion(message,token,fetcher)).fingerprint;item.subject=header(message,'subject');item.to=header(message,'to');item.cc=header(message,'cc');item.bcc=header(message,'bcc');item.body=text.slice(0,50000);item.bodyTruncated=text.length>50000;item.filename=pdfs.length===1?pdfs[0].filename||'':'Multiple PDFs';item.attachment=pdfs.length===1;item.otherAttachments=parts(message.payload).some(part=>!!part.filename&&!pdfs.includes(part));
+ const preview=emailTextPreview(message.payload);item.messageId=message.id;item.version=(await currentVersion(message,token,fetcher)).fingerprint;item.subject=header(message,'subject');item.to=header(message,'to');item.cc=header(message,'cc');item.bcc=header(message,'bcc');item.body=preview.text.slice(0,50000);item.bodyTruncated=preview.truncated;item.bodyFromHtml=preview.fromHtml;item.bodyHasOwnText=preview.hasOwnText;item.filename=pdfs.length===1?pdfs[0].filename||'':'Multiple PDFs';item.attachment=pdfs.length===1;item.otherAttachments=parts(message.payload).some(part=>!!part.filename&&!pdfs.includes(part));
  item.state=message.threadId===mapping.threadId?'ready':'changed-thread';
  if(mapping.draftMessageId&&mapping.draftMessageId!==message.id)item.warning='The draft message ID changed since import. Review this edited draft and its PDF carefully.';
  if(item.state==='changed-thread')item.warning='The Gmail draft is no longer in the mapped delivery thread. Review it in Gmail.';
@@ -101,7 +101,7 @@ export async function discoverInvoiceDrafts(token:string,knownIds:Set<string>,fe
   const number=numbers.length===1?numbers[0]:'';
   const state=attachments.length>1||numbers.length>1?'ambiguous':!number||!delivery?'needs-association':'ready';
   const warning=state==='ambiguous'?'Multiple JFM invoice PDF attachments or invoice numbers were found. Open Gmail and choose the intended invoice; Hub did not associate this draft.':state==='needs-association'?'The invoice number or matching sent media-delivery message could not be verified. Review this draft in Gmail before associating it.':undefined;
-  const text=plainBody(message);items.push({number,draftId:id,threadId:message.threadId,messageId:message.id,state,version:(await currentVersion(message,token,fetcher)).fingerprint,subject:header(message,'subject'),to:header(message,'to'),cc:header(message,'cc'),bcc:header(message,'bcc'),body:text.slice(0,50000),bodyTruncated:text.length>50000,filename:attachments.length===1?attachments[0].filename:'Multiple PDFs',attachment:attachments.length===1,otherAttachments:parts(message.payload).some(part=>!!part.filename&&!attachments.includes(part)),deliverySubject:delivery?header(delivery,'subject'):'',deliveryFrom:delivery?header(delivery,'from'):'',deliveryDate:delivery?header(delivery,'date'):'',warning,gmailUrl:`https://mail.google.com/mail/?authuser=${encodeURIComponent(config.businessEmail)}#drafts/${encodeURIComponent(message.threadId)}`,source:'discovered'});
+  const preview=emailTextPreview(message.payload);items.push({number,draftId:id,threadId:message.threadId,messageId:message.id,state,version:(await currentVersion(message,token,fetcher)).fingerprint,subject:header(message,'subject'),to:header(message,'to'),cc:header(message,'cc'),bcc:header(message,'bcc'),body:preview.text.slice(0,50000),bodyTruncated:preview.truncated,bodyFromHtml:preview.fromHtml,bodyHasOwnText:preview.hasOwnText,filename:attachments.length===1?attachments[0].filename:'Multiple PDFs',attachment:attachments.length===1,otherAttachments:parts(message.payload).some(part=>!!part.filename&&!attachments.includes(part)),deliverySubject:delivery?header(delivery,'subject'):'',deliveryFrom:delivery?header(delivery,'from'):'',deliveryDate:delivery?header(delivery,'date'):'',warning,gmailUrl:`https://mail.google.com/mail/?authuser=${encodeURIComponent(config.businessEmail)}#drafts/${encodeURIComponent(message.threadId)}`,source:'discovered'});
  }
  return {items,incomplete};
 }

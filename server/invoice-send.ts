@@ -11,7 +11,7 @@ export function sendEligibility(item:ReviewItem|undefined,store:Store):string|un
  if(!item||item.state!=='ready'||!item.number||!item.version||!item.messageId||!item.attachment||!item.filename||!/^(?:re:\s*)?media\s+delivery\b/i.test(item.deliverySubject||''))return 'This draft or its media delivery thread needs review before sending.';
  if(item.otherAttachments)return 'This draft has another attachment. Review it in Gmail before sending.';
  if(item.bodyTruncated)return 'The email body is too long for a complete Hub review. Review and send it in Gmail.';
- if(!item.to?.trim()||!item.subject?.trim()||!item.body?.trim())return 'The current recipients, subject, or plain-text body cannot be verified in Hub.';
+ if(!item.to?.trim()||!item.subject?.trim()||!item.body?.trim()||item.bodyHasOwnText===false)return 'The current recipients, subject, or plain-text body cannot be verified in Hub.';
  const note=store.db.prepare('SELECT version FROM invoice_review_notes WHERE number=?').get(item.number) as {version:string}|undefined;
  if(note?.version===item.version)return 'Changes were requested for this draft. Edit it in Gmail and refresh before sending.';
  return undefined;
@@ -24,7 +24,7 @@ export function prepareInvoiceSend(store:Store,item:ReviewItem){
  VALUES(?,?,?,?,?,'prepared',?,NULL,?) ON CONFLICT(draft_id) DO UPDATE SET number=excluded.number,thread_id=excluded.thread_id,version=excluded.version,confirmation_hash=excluded.confirmation_hash,status='prepared',expires_at=excluded.expires_at,updated_at=excluded.updated_at
  WHERE invoice_review_sends.status IN ('prepared','blocked')`).run(item.draftId,item.number,item.threadId,item.version!,hash(confirmationId),expiresAt,new Date().toISOString());
  if(!result.changes)throw new Error('This draft already has a send attempt. Check Gmail before taking any further action.');
- return {confirmationId,expiresAt,number:item.number,draftId:item.draftId,threadId:item.threadId,version:item.version!,to:item.to!,cc:item.cc||'',bcc:item.bcc||'',subject:item.subject!,body:item.body!,filename:item.filename!};
+ return {confirmationId,expiresAt,number:item.number,draftId:item.draftId,threadId:item.threadId,version:item.version!,to:item.to!,cc:item.cc||'',bcc:item.bcc||'',subject:item.subject!,body:item.body!,bodyFromHtml:!!item.bodyFromHtml,filename:item.filename!};
 }
 
 export async function sendPreparedInvoice(store:Store,input:SendInput,loadCurrent:()=>Promise<ReviewItem|undefined>,composeToken:()=>Promise<string>,fetcher:typeof fetch=fetch){
