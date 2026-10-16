@@ -4,11 +4,11 @@ import type {Store} from './store.ts';
 import {gmailAccessToken} from './gmail.ts';
 import {config} from './config.ts';
 
-export type ReviewMapping={number:string;draftId:string;threadId:string;draftMessageId?:string;deliveryMessageId?:string};
+export type ReviewMapping={number:string;draftId:string;threadId:string;draftMessageId?:string;deliveryMessageId?:string;dropboxUrl?:string};
 type Part={mimeType?:string;filename?:string;body?:{data?:string;attachmentId?:string;size?:number};parts?:Part[]};
 type Message={id?:string;threadId?:string;labelIds?:string[];payload?:Part&{headers?:{name:string;value:string}[]}};
 type Draft={id?:string;message?:Message};
-export type ReviewItem={number:string;draftId:string;threadId:string;messageId?:string;state:'ready'|'missing'|'changed-thread'|'unavailable'|'possibly-sent'|'needs-association'|'ambiguous';version?:string;subject?:string;to?:string;cc?:string;bcc?:string;body?:string;bodyTruncated?:boolean;filename?:string;deliverySubject?:string;deliveryFrom?:string;deliveryDate?:string;attachment?:boolean;otherAttachments?:boolean;warning?:string;gmailUrl:string;source:'mapped'|'discovered'};
+export type ReviewItem={number:string;draftId:string;threadId:string;messageId?:string;state:'ready'|'missing'|'changed-thread'|'unavailable'|'possibly-sent'|'needs-association'|'ambiguous';version?:string;subject?:string;to?:string;cc?:string;bcc?:string;body?:string;bodyTruncated?:boolean;filename?:string;deliverySubject?:string;deliveryFrom?:string;deliveryDate?:string;attachment?:boolean;otherAttachments?:boolean;warning?:string;gmailUrl:string;dropboxUrl?:string;source:'mapped'|'discovered'};
 const base='https://gmail.googleapis.com/gmail/v1/users/me';
 const header=(message:Message|undefined,name:string)=>message?.payload?.headers?.find(h=>h.name.toLowerCase()===name)?.value||'';
 const parts=(part:Part|undefined):Part[]=>part?[part,...(part.parts||[]).flatMap(parts)]:[];
@@ -31,7 +31,7 @@ export function reviewMappings():ReviewMapping[]{
  const value:unknown=JSON.parse(readFileSync(path,'utf8'));
  if(!Array.isArray(value)||value.length>100)throw new Error('Invalid private invoice review mapping.');
  const entries=value as ReviewMapping[];
- if(entries.some(x=>!x||!/^\d{5,8}$/.test(x.number)||!/^[-\w]+$/.test(x.draftId)||!/^[-\w]+$/.test(x.threadId)||x.draftMessageId!==undefined&&!/^[-\w]+$/.test(x.draftMessageId)||x.deliveryMessageId!==undefined&&!/^[-\w]+$/.test(x.deliveryMessageId))||new Set(entries.map(x=>x.draftId)).size!==entries.length)throw new Error('Invalid private invoice review mapping.');
+ if(entries.some(x=>!x||!/^\d{5,8}$/.test(x.number)||!/^[-\w]+$/.test(x.draftId)||!/^[-\w]+$/.test(x.threadId)||x.draftMessageId!==undefined&&!/^[-\w]+$/.test(x.draftMessageId)||x.deliveryMessageId!==undefined&&!/^[-\w]+$/.test(x.deliveryMessageId)||x.dropboxUrl!==undefined&&!/^https:\/\/www\.dropbox\.com\/home\//.test(x.dropboxUrl))||new Set(entries.map(x=>x.draftId)).size!==entries.length)throw new Error('Invalid private invoice review mapping.');
  return entries;
 }
 export function allReviewMappings(store:Store):ReviewMapping[]{
@@ -107,6 +107,7 @@ export async function discoverInvoiceDrafts(token:string,knownIds:Set<string>,fe
 }
 export async function reviewQueueWithToken(store:Store,token:string,fetcher:typeof fetch=fetch):Promise<{items:ReviewItem[];incomplete:boolean}>{
  const mappings=allReviewMappings(store),items:ReviewItem[]=[];
+ const folderByNumber=new Map(mappings.filter(item=>item.dropboxUrl).map(item=>[item.number,item.dropboxUrl!]));
  for(const mapping of mappings)items.push(await reviewItem(mapping,token,fetcher));
  const discovered=await discoverInvoiceDrafts(token,new Set(mappings.map(item=>item.draftId)),fetcher);
  items.push(...discovered.items);
@@ -133,9 +134,13 @@ export async function reviewQueueWithToken(store:Store,token:string,fetcher:type
  const counts=new Map<string,number>();for(const item of items)if(item.number&&item.state!=='missing'&&item.state!=='possibly-sent')counts.set(item.number,(counts.get(item.number)||0)+1);
  for(const item of items)if(item.number&&(counts.get(item.number)||0)>1){item.state='ambiguous';item.warning='More than one current Gmail draft uses this invoice number. Review both in Gmail; Hub will not choose one automatically.';}
  if(discovered.incomplete)for(const item of items)if(item.state==='ready'){item.state='needs-association';item.warning='Gmail draft discovery is incomplete, so a duplicate cannot be ruled out. Review in Gmail and refresh after narrowing the mailbox.';}
+ for(const item of items)item.dropboxUrl=folderByNumber.get(item.number);
  return {items,incomplete:discovered.incomplete};
 }
 export async function reviewQueue(store:Store,fetcher:typeof fetch=fetch){return reviewQueueWithToken(store,await gmailAccessToken(store),fetcher);}
+export function canPreviewReviewPdf(item:ReviewItem|undefined,version:string,draftId:string):item is ReviewItem{
+ return !!item&&item.draftId===draftId&&item.version===version&&item.attachment===true&&(item.state==='ready'||item.state==='ambiguous');
+}
 export async function deliveryCandidates(store:Store,term:string,fetcher:typeof fetch=fetch){
  const safe=term.replace(/["{}()\r\n]/g,' ').trim().slice(0,100);if(safe.length<5)return [];
  const token=await gmailAccessToken(store),query=new URLSearchParams({q:`in:sent "${safe}"`,maxResults:'15'});

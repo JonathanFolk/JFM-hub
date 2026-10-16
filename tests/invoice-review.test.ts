@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {discoverInvoiceDrafts,reviewItem,reviewPdf,reviewQueueWithToken} from '../server/invoice-review.ts';
+import {canPreviewReviewPdf,discoverInvoiceDrafts,reviewItem,reviewPdf,reviewQueueWithToken} from '../server/invoice-review.ts';
 import type {ReviewMapping} from '../server/invoice-review.ts';
 import {Store} from '../server/store.ts';
 
@@ -14,6 +14,13 @@ test('review reads the existing Gmail draft and its exact PDF without creating o
  const fetcher=mockFetch(),item=await reviewItem(mapping,'token',fetcher);
  assert.equal(item.state,'ready');assert.equal(item.to,'client@example.com');assert.equal(item.cc,'accounts@example.com');assert.equal(item.body,'Please review the invoice.');assert.equal(item.deliverySubject,'Media delivery');
  assert.ok(item.version);assert.deepEqual((await reviewPdf(mapping,'token',item.version!,fetcher)).bytes,pdf);
+});
+test('read-only PDF preview permits an exact ambiguous candidate while send remains blocked',async()=>{
+ const item=await reviewItem(mapping,'token',mockFetch());assert.ok(item.version);
+ assert.equal(canPreviewReviewPdf({...item,state:'ambiguous'},item.version!,item.draftId),true);
+ assert.equal(canPreviewReviewPdf({...item,state:'ambiguous'},'0'.repeat(64),item.draftId),false);
+ assert.equal(canPreviewReviewPdf({...item,state:'needs-association'},item.version!,item.draftId),false);
+ assert.equal(canPreviewReviewPdf({...item,state:'ambiguous'},item.version!,'another-draft'),false);
 });
 test('rotating Gmail attachment IDs keep an unchanged PDF version stable',async()=>{
  let reads=0;
