@@ -1,6 +1,6 @@
 import {createInvoiceEmailDraft,invoicePdfFilename,loadInvoiceEmailTemplate,prepareInvoiceEmail} from './invoice-email.ts';
 import {gmailDraftAccessToken} from './gmail.ts';
-import {canPreviewReviewPdf,deliveryCandidates,gmailGet,reviewItem,reviewPdf,reviewQueue} from './invoice-review.ts';
+import {deliveryCandidates,gmailGet,reviewItem,reviewPdf,reviewPdfMapping,reviewQueue} from './invoice-review.ts';
 import {prepareInvoiceSend,sendPreparedInvoice} from './invoice-send.ts';
 import {gmailAccessToken} from './gmail.ts';
 import {renderInvoicePdf,validatePdfInput,configuredInvoiceFonts} from './invoice-pdf.ts';
@@ -110,9 +110,9 @@ app.post('/api/invoice-review/:number/request-changes',async(req,res)=>{
 app.get('/api/invoice-review/:number/pdf',async(req,res)=>{
  try{
   const version=String(req.query.version||''),draftId=String(req.query.draftId||'');if(!/^[a-f0-9]{64}$/.test(version)||!draftId)return res.status(400).json({error:'Refresh the review before opening the PDF.'});
-  const queue=await reviewQueue(store),item=queue.items.find(row=>row.number===req.params.number&&row.draftId===draftId);
-  if(!canPreviewReviewPdf(item,version,draftId))return res.status(409).json({error:'This draft changed or needs association. Refresh the review.'});
-  const token=await gmailAccessToken(store),result=await reviewPdf({number:item.number,draftId:item.draftId,threadId:item.threadId},token,version);
+  const mapping=reviewPdfMapping(store,req.params.number,draftId);
+  if(!mapping)return res.status(409).json({error:'This draft changed or needs association. Refresh the review.'});
+  const token=await gmailAccessToken(store),result=await reviewPdf(mapping,token,version);
   res.type('application/pdf').set({'X-Frame-Options':'SAMEORIGIN','Content-Security-Policy':"default-src 'none'; frame-ancestors 'self'",'Content-Disposition':`inline; filename="${result.filename.replace(/[^\x20-\x7e]/g,'_').replace(/["\\]/g,'_')}"`}).send(result.bytes);
  }catch(error){res.status(409).json({error:error instanceof Error?error.message:'Could not open the current PDF.'});}
 });

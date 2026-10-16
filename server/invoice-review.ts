@@ -138,8 +138,12 @@ export async function reviewQueueWithToken(store:Store,token:string,fetcher:type
  return {items,incomplete:discovered.incomplete};
 }
 export async function reviewQueue(store:Store,fetcher:typeof fetch=fetch){return reviewQueueWithToken(store,await gmailAccessToken(store),fetcher);}
-export function canPreviewReviewPdf(item:ReviewItem|undefined,version:string,draftId:string):item is ReviewItem{
- return !!item&&item.draftId===draftId&&item.version===version&&item.attachment===true&&(item.state==='ready'||item.state==='ambiguous');
+export function reviewPdfMapping(store:Store,number:string,draftId:string):ReviewMapping|undefined{
+ if(!/^\d{5,8}$/.test(number)||!/^[-\w]+$/.test(draftId))return undefined;
+ const mapped=allReviewMappings(store).find(row=>row.number===number&&row.draftId===draftId);
+ if(mapped)return mapped;
+ const discovered=store.db.prepare('SELECT thread_id FROM invoice_discovered_drafts WHERE draft_id=? AND number=?').get(draftId,number) as {thread_id:string}|undefined;
+ return discovered?{number,draftId,threadId:discovered.thread_id}:undefined;
 }
 export async function deliveryCandidates(store:Store,term:string,fetcher:typeof fetch=fetch){
  const safe=term.replace(/["{}()\r\n]/g,' ').trim().slice(0,100);if(safe.length<5)return [];
@@ -155,6 +159,7 @@ export async function reviewPdf(mapping:ReviewMapping,token:string,expectedVersi
  if(current.fingerprint!==expectedVersion)throw new Error('This Gmail draft changed. Refresh the review before opening its PDF.');
  const attachments=pdfParts(draft.message);
  if(attachments.length!==1)throw new Error('The current Gmail draft must have exactly one PDF attachment for preview.');
+ if(invoiceNumber(attachments[0].filename||'')!==mapping.number)throw new Error('The attached PDF no longer matches this invoice number. Refresh the review.');
  const bytes=current.pdfs[0];if(bytes.subarray(0,5).toString()!=='%PDF-'||bytes.length>15_000_000)throw new Error('The attachment is not a valid reviewable PDF.');
  return {bytes,filename:attachments[0].filename||`Invoice-${mapping.number}.pdf`};
 }

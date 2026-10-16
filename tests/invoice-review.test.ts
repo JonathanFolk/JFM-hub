@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {canPreviewReviewPdf,discoverInvoiceDrafts,reviewItem,reviewPdf,reviewQueueWithToken} from '../server/invoice-review.ts';
+import {discoverInvoiceDrafts,reviewItem,reviewPdf,reviewPdfMapping,reviewQueueWithToken} from '../server/invoice-review.ts';
 import type {ReviewMapping} from '../server/invoice-review.ts';
 import {Store} from '../server/store.ts';
 
@@ -15,12 +15,16 @@ test('review reads the existing Gmail draft and its exact PDF without creating o
  assert.equal(item.state,'ready');assert.equal(item.to,'client@example.com');assert.equal(item.cc,'accounts@example.com');assert.equal(item.body,'Please review the invoice.');assert.equal(item.deliverySubject,'Media delivery');
  assert.ok(item.version);assert.deepEqual((await reviewPdf(mapping,'token',item.version!,fetcher)).bytes,pdf);
 });
-test('read-only PDF preview permits an exact ambiguous candidate while send remains blocked',async()=>{
- const item=await reviewItem(mapping,'token',mockFetch());assert.ok(item.version);
- assert.equal(canPreviewReviewPdf({...item,state:'ambiguous'},item.version!,item.draftId),true);
- assert.equal(canPreviewReviewPdf({...item,state:'ambiguous'},'0'.repeat(64),item.draftId),false);
- assert.equal(canPreviewReviewPdf({...item,state:'needs-association'},item.version!,item.draftId),false);
- assert.equal(canPreviewReviewPdf({...item,state:'ambiguous'},item.version!,'another-draft'),false);
+test('read-only PDF preview uses the saved draft association and exact current PDF',async()=>{
+ const store=new Store(':memory:');
+ try{
+  store.db.prepare('INSERT INTO invoice_discovered_drafts VALUES(?,?,?,?,?,?)').run('r-test','12345','thread-1','draft-message','baseline',new Date().toISOString());
+  const candidate=reviewPdfMapping(store,'12345','r-test');assert.deepEqual(candidate,{number:'12345',draftId:'r-test',threadId:'thread-1'});
+  assert.equal(reviewPdfMapping(store,'12346','r-test'),undefined);
+  const item=await reviewItem(mapping,'token',mockFetch());assert.ok(item.version);
+  assert.deepEqual((await reviewPdf(candidate!,'token',item.version!,mockFetch())).bytes,pdf);
+  await assert.rejects(reviewPdf(candidate!,'token','0'.repeat(64),mockFetch()),/changed/);
+ }finally{store.close();}
 });
 test('rotating Gmail attachment IDs keep an unchanged PDF version stable',async()=>{
  let reads=0;
@@ -48,6 +52,8 @@ test('stale PDF versions and changed threads are blocked',async()=>{
 test('mapped drafts with changed invoice PDFs or multiple PDFs need manual association',async()=>{
  const changed=structuredClone(draft);changed.message.payload.parts[1].filename='Invoice-12346.pdf';
  assert.equal((await reviewItem(mapping,'token',mockFetch(changed))).state,'needs-association');
+ const changedItem=await reviewItem(mapping,'token',mockFetch(changed));
+ await assert.rejects(reviewPdf(mapping,'token',changedItem.version!,mockFetch(changed)),/no longer matches/);
  const multiple=structuredClone(draft);multiple.message.payload.parts.push({mimeType:'application/pdf',filename:'Invoice-12346.pdf',body:{attachmentId:'second'}});
  const item=await reviewItem(mapping,'token',mockFetch(multiple));assert.equal(item.state,'ambiguous');
  await assert.rejects(reviewPdf(mapping,'token',item.version!,mockFetch(multiple)),/exactly one PDF/);
