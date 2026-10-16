@@ -13,7 +13,19 @@ const base='https://gmail.googleapis.com/gmail/v1/users/me';
 const header=(message:Message|undefined,name:string)=>message?.payload?.headers?.find(h=>h.name.toLowerCase()===name)?.value||'';
 const parts=(part:Part|undefined):Part[]=>part?[part,...(part.parts||[]).flatMap(parts)]:[];
 const body=(message:Message)=>{const part=parts(message.payload).find(p=>p.mimeType==='text/plain'&&p.body?.data);return part?.body?.data?Buffer.from(part.body.data,'base64url').toString('utf8').slice(0,50000):'';};
-const version=(message:Message)=>createHash('sha256').update(JSON.stringify({id:message.id,threadId:message.threadId,payload:message.payload})).digest('hex');
+const pdfParts=(message:Message)=>parts(message.payload).filter(part=>part.mimeType==='application/pdf'||/\.pdf$/i.test(part.filename||''));
+async function attachmentBytes(message:Message,part:Part,token:string,fetcher:typeof fetch):Promise<Buffer>{
+ const data=part.body?.data||(part.body?.attachmentId?(await gmailGet<{data?:string}>(`messages/${encodeURIComponent(message.id||'')}/attachments/${encodeURIComponent(part.body.attachmentId)}`,token,fetcher))?.data:undefined);
+ if(!data)throw new Error('The PDF attachment could not be read.');
+ return Buffer.from(data,'base64url');
+}
+async function currentVersion(message:Message,token:string,fetcher:typeof fetch){
+ // Gmail can rotate an attachment ID between reads while its bytes remain unchanged.
+ const payload=JSON.parse(JSON.stringify(message.payload||{},(key,value)=>key==='attachmentId'?undefined:value));
+ const pdfs=await Promise.all(pdfParts(message).map(part=>attachmentBytes(message,part,token,fetcher)));
+ const fingerprint=createHash('sha256').update(JSON.stringify({id:message.id,threadId:message.threadId,payload,pdfs:pdfs.map(bytes=>createHash('sha256').update(bytes).digest('hex'))})).digest('hex');
+ return {fingerprint,pdfs};
+}
 export function reviewMappings():ReviewMapping[]{
  const path=process.env.INVOICE_REVIEW_MAPPING_FILE;if(!path)return [];
  const value:unknown=JSON.parse(readFileSync(path,'utf8'));
@@ -55,7 +67,7 @@ export async function reviewItem(mapping:ReviewMapping,token:string,fetcher:type
   return item;
  }
  const message=draft.message,pdfs=parts(message.payload).filter(p=>p.mimeType==='application/pdf'||/\.pdf$/i.test(p.filename||''));
- item.messageId=message.id;item.version=version(message);item.subject=header(message,'subject');item.to=header(message,'to');item.cc=header(message,'cc');item.body=body(message);item.filename=pdfs.length===1?pdfs[0].filename||'':'Multiple PDFs';item.attachment=pdfs.length===1;
+ item.messageId=message.id;item.version=(await currentVersion(message,token,fetcher)).fingerprint;item.subject=header(message,'subject');item.to=header(message,'to');item.cc=header(message,'cc');item.body=body(message);item.filename=pdfs.length===1?pdfs[0].filename||'':'Multiple PDFs';item.attachment=pdfs.length===1;
  item.state=message.threadId===mapping.threadId?'ready':'changed-thread';
  if(mapping.draftMessageId&&mapping.draftMessageId!==message.id)item.warning='The draft message ID changed since import. Review this edited draft and its PDF carefully.';
  if(item.state==='changed-thread')item.warning='The Gmail draft is no longer in the mapped delivery thread. Review it in Gmail.';
@@ -89,7 +101,7 @@ export async function discoverInvoiceDrafts(token:string,knownIds:Set<string>,fe
   const number=numbers.length===1?numbers[0]:'';
   const state=attachments.length>1||numbers.length>1?'ambiguous':!number||!delivery?'needs-association':'ready';
   const warning=state==='ambiguous'?'Multiple JFM invoice PDF attachments or invoice numbers were found. Open Gmail and choose the intended invoice; Hub did not associate this draft.':state==='needs-association'?'The invoice number or matching sent media-delivery message could not be verified. Review this draft in Gmail before associating it.':undefined;
-  items.push({number,draftId:id,threadId:message.threadId,messageId:message.id,state,version:version(message),subject:header(message,'subject'),to:header(message,'to'),cc:header(message,'cc'),body:body(message),filename:attachments.length===1?attachments[0].filename:'Multiple PDFs',attachment:attachments.length===1,deliverySubject:delivery?header(delivery,'subject'):'',deliveryFrom:delivery?header(delivery,'from'):'',deliveryDate:delivery?header(delivery,'date'):'',warning,gmailUrl:`https://mail.google.com/mail/?authuser=${encodeURIComponent(config.businessEmail)}#drafts/${encodeURIComponent(message.threadId)}`,source:'discovered'});
+  items.push({number,draftId:id,threadId:message.threadId,messageId:message.id,state,version:(await currentVersion(message,token,fetcher)).fingerprint,subject:header(message,'subject'),to:header(message,'to'),cc:header(message,'cc'),body:body(message),filename:attachments.length===1?attachments[0].filename:'Multiple PDFs',attachment:attachments.length===1,deliverySubject:delivery?header(delivery,'subject'):'',deliveryFrom:delivery?header(delivery,'from'):'',deliveryDate:delivery?header(delivery,'date'):'',warning,gmailUrl:`https://mail.google.com/mail/?authuser=${encodeURIComponent(config.businessEmail)}#drafts/${encodeURIComponent(message.threadId)}`,source:'discovered'});
  }
  return {items,incomplete};
 }
@@ -133,12 +145,11 @@ export async function deliveryCandidates(store:Store,term:string,fetcher:typeof 
 }
 export async function reviewPdf(mapping:ReviewMapping,token:string,expectedVersion:string,fetcher:typeof fetch=fetch):Promise<{bytes:Buffer;filename:string}>{
  const draft=await gmailGet<Draft>(`drafts/${encodeURIComponent(mapping.draftId)}?format=full`,token,fetcher);
- if(!draft?.message||draft.message.threadId!==mapping.threadId||version(draft.message)!==expectedVersion)throw new Error('This Gmail draft changed. Refresh the review before opening its PDF.');
- const attachments=parts(draft.message.payload).filter(part=>part.mimeType==='application/pdf'||/\.pdf$/i.test(part.filename||''));
+ if(!draft?.message||draft.message.threadId!==mapping.threadId)throw new Error('This Gmail draft changed. Refresh the review before opening its PDF.');
+ const current=await currentVersion(draft.message,token,fetcher);
+ if(current.fingerprint!==expectedVersion)throw new Error('This Gmail draft changed. Refresh the review before opening its PDF.');
+ const attachments=pdfParts(draft.message);
  if(attachments.length!==1)throw new Error('The current Gmail draft must have exactly one PDF attachment for preview.');
- const part=attachments[0];
- const data=part.body?.data||(part.body?.attachmentId?(await gmailGet<{data?:string}>(`messages/${encodeURIComponent(draft.message.id||'')}/attachments/${encodeURIComponent(part.body.attachmentId)}`,token,fetcher))?.data:undefined);
- if(!data)throw new Error('The PDF attachment could not be read.');
- const bytes=Buffer.from(data,'base64url');if(bytes.subarray(0,5).toString()!=='%PDF-'||bytes.length>15_000_000)throw new Error('The attachment is not a valid reviewable PDF.');
- return {bytes,filename:part.filename||`Invoice-${mapping.number}.pdf`};
+ const bytes=current.pdfs[0];if(bytes.subarray(0,5).toString()!=='%PDF-'||bytes.length>15_000_000)throw new Error('The attachment is not a valid reviewable PDF.');
+ return {bytes,filename:attachments[0].filename||`Invoice-${mapping.number}.pdf`};
 }

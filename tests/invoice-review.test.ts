@@ -15,6 +15,22 @@ test('review reads the existing Gmail draft and its exact PDF without creating o
  assert.equal(item.state,'ready');assert.equal(item.to,'client@example.com');assert.equal(item.cc,'accounts@example.com');assert.equal(item.body,'Please review the invoice.');assert.equal(item.deliverySubject,'Media delivery');
  assert.ok(item.version);assert.deepEqual((await reviewPdf(mapping,'token',item.version!,fetcher)).bytes,pdf);
 });
+test('rotating Gmail attachment IDs keep an unchanged PDF version stable',async()=>{
+ let reads=0;
+ const fetcher:typeof fetch=async(input,options)=>{
+  if(String(input).includes('/drafts/')){const current=structuredClone(draft);current.message.payload.parts[1].body.attachmentId=`rotating-${++reads}`;return response(current);}
+  return mockFetch()(input,options);
+ };
+ const item=await reviewItem(mapping,'token',fetcher);
+ assert.deepEqual((await reviewPdf(mapping,'token',item.version!,fetcher)).bytes,pdf);
+ assert.equal(reads,2);
+});
+test('replacement PDF bytes invalidate a previously reviewed version',async()=>{
+ let attachments=0;
+ const fetcher:typeof fetch=async(input,options)=>String(input).includes('/attachments/')?response({data:Buffer.from(attachments++?'%PDF-new':'%PDF-old').toString('base64url')}):mockFetch()(input,options);
+ const item=await reviewItem(mapping,'token',fetcher);
+ await assert.rejects(reviewPdf(mapping,'token',item.version!,fetcher),/changed/);
+});
 test('stale PDF versions and changed threads are blocked',async()=>{
  const fetcher=mockFetch(),item=await reviewItem(mapping,'token',fetcher);
  await assert.rejects(reviewPdf(mapping,'token','0'.repeat(64),fetcher),/changed/);
