@@ -1,3 +1,8 @@
+import {createInvoiceEmailDraft,invoicePdfFilename,loadInvoiceEmailTemplate,prepareInvoiceEmail} from './invoice-email.ts';
+import {gmailDraftAccessToken} from './gmail.ts';
+import {deliveryCandidates,gmailGet,reviewPdf,reviewQueue} from './invoice-review.ts';
+import {gmailAccessToken} from './gmail.ts';
+import {renderInvoicePdf,validatePdfInput,configuredInvoiceFonts} from './invoice-pdf.ts';
 import express from 'express';
 import {existsSync} from 'node:fs';
 import {Store} from './store.ts';
@@ -13,7 +18,7 @@ import {commercialEmailPrices} from './gmail.ts';
 import {syncInvoiceEvidence} from './reconciliation.ts';
 import {pricingQuestions,referenceForClient} from './reference.ts';
 import {normalizeSortDetails} from './workflow.ts';
-import {readCompletionSheet} from './invoicing-sheet.ts';
+import {readCompletionSheet,readInvoiceSheet} from './invoicing-sheet.ts';
 validateConfig();const store=new Store(config.database);ensureCalendarSources(store);const app=express();
 app.disable('x-powered-by');app.use(express.json({limit:'20kb'}));
 app.use((req,res,next)=>{
@@ -55,7 +60,80 @@ app.post('/api/bulk/delete',(req,res)=>{const {kind,ids}=req.body||{};if(!['revi
 app.post('/api/bulk/complete',async(req,res)=>{const {kind,ids}=req.body||{};if(!['reviews','invoices'].includes(kind)||!Array.isArray(ids)||!ids.length||ids.length>200||ids.some((id:unknown)=>typeof id!=='string'))return res.status(400).json({error:'Select 1 to 200 Review or Invoice items.'});try{const sheet=await readCompletionSheet(store);res.json({count:store.bulkComplete(kind,ids,sheet)});}catch(error){res.status(409).json({error:error instanceof Error?error.message:'Could not verify the selected shoots in the master Sheet.'});}});
 app.post('/api/deleted/:id/restore',(req,res)=>{try{store.restoreReview(String(req.params.id));res.json({ok:true});}catch(error){res.status(404).json({error:error instanceof Error?error.message:'Deleted item not found.'});}});
 app.post('/api/rates',(req,res)=>{try{const id=typeof req.body?.id==='string'?req.body.id:'';const existing=id?store.rates().find(rate=>rate.id===id):undefined;if(id&&!existing)return res.status(404).json({error:'Rate not found.'});res.json(store.saveRate(normalizeRate(req.body,existing)));}catch(error){res.status(400).json({error:error instanceof Error?error.message:'Invalid rate.'});}});
+app.get('/api/invoice-review',async(_req,res)=>{
+ try{
+  const queue=await reviewQueue(store),notes=store.db.prepare('SELECT number,version,note,updated_at FROM invoice_review_notes').all() as {number:string;version:string;note:string;updated_at:string}[];
+  const hubInvoices=store.invoices(),sheetRows=store.getSetting('sheets-refresh')?await readInvoiceSheet(store).catch(()=>[]):[];
+  res.json({connected:!!store.getSetting('gmail-refresh'),incomplete:queue.incomplete,items:queue.items.map(item=>{
+   const hubMatches=hubInvoices.filter(invoice=>invoice.pdfDetails?.reference===item.number),sheetMatches=sheetRows.filter(row=>row.number===item.number);
+   const hub=hubMatches.length===1?hubMatches[0]:undefined,sheet=sheetMatches.length===1?sheetMatches[0]:undefined;
+   const subtotal=hub?.lines.reduce((sum,line)=>sum+line.quantity*line.unitPriceCents,0);
+   const unique=!!item.number&&queue.items.filter(other=>other.number===item.number&&other.state!=='missing'&&other.state!=='possibly-sent').length===1;
+   return {...item,client:sheet?.client||hub?.client||'',property:hub?.property||'',totalCents:sheet?.totalCents??(subtotal===undefined?null:subtotal+(hub?.taxTreatment==='taxable'?Math.round(subtotal*hub.taxRateBps/10000):0)),currency:hub?.currency||'CAD',reviewNote:unique?notes.find(note=>note.number===item.number)||null:null};
+  })});
+ }catch(error){res.status(503).json({error:error instanceof Error?error.message:'Could not read Gmail drafts.'});}
+});
+app.post('/api/invoice-review/:number/request-changes',async(req,res)=>{
+ try{
+  const note=req.body?.note,version=req.body?.version,draftId=req.body?.draftId;
+  if(typeof note!=='string'||note.trim().length<3||note.length>2000||typeof version!=='string'||!/^[a-f0-9]{64}$/.test(version)||typeof draftId!=='string')return res.status(400).json({error:'Add a review note and refresh the current draft.'});
+  const queue=await reviewQueue(store),item=queue.items.find(row=>row.number===req.params.number&&row.draftId===draftId);
+  if(!item||item.state!=='ready'||item.version!==version)return res.status(409).json({error:'This Gmail draft changed or needs association. Refresh before requesting changes.'});
+  store.db.prepare('INSERT INTO invoice_review_notes VALUES(?,?,?,?) ON CONFLICT(number) DO UPDATE SET version=excluded.version,note=excluded.note,updated_at=excluded.updated_at').run(item.number,version,note.trim(),new Date().toISOString());
+  res.json({ok:true});
+ }catch(error){res.status(503).json({error:error instanceof Error?error.message:'Could not save the review note.'});}
+});
+app.get('/api/invoice-review/:number/pdf',async(req,res)=>{
+ try{
+  const version=String(req.query.version||''),draftId=String(req.query.draftId||'');if(!/^[a-f0-9]{64}$/.test(version)||!draftId)return res.status(400).json({error:'Refresh the review before opening the PDF.'});
+  const queue=await reviewQueue(store),item=queue.items.find(row=>row.number===req.params.number&&row.draftId===draftId);
+  if(!item||item.state!=='ready'||item.version!==version)return res.status(409).json({error:'This draft changed or needs association. Refresh the review.'});
+  const token=await gmailAccessToken(store),result=await reviewPdf({number:item.number,draftId:item.draftId,threadId:item.threadId},token,version);
+  res.type('application/pdf').set({'X-Frame-Options':'SAMEORIGIN','Content-Security-Policy':"default-src 'none'; frame-ancestors 'self'",'Content-Disposition':`inline; filename="${result.filename.replace(/[^\x20-\x7e]/g,'_').replace(/["\\]/g,'_')}"`}).send(result.bytes);
+ }catch(error){res.status(409).json({error:error instanceof Error?error.message:'Could not open the current PDF.'});}
+});
 app.get('/api/reference/pricing-questions',(_req,res)=>res.json({questions:pricingQuestions(store),imports:store.referenceImports()}));
+app.get('/api/invoices/:id/email-draft',(req,res)=>{
+ const invoice=store.invoice(String(req.params.id));if(!invoice||store.deletedJobIds().has(invoice.jobId))return res.status(404).json({error:'Invoice draft not found.'});
+ const existing=store.db.prepare('SELECT state,draft_id FROM invoice_email_drafts WHERE invoice_id=?').get(invoice.id);
+ let templateConfigured=false;try{loadInvoiceEmailTemplate();templateConfigured=true;}catch{}
+ res.json({connected:!!store.getSetting('gmail-drafts-refresh'),templateConfigured,fontsConfigured:!!configuredInvoiceFonts(),existing:existing||null});
+});
+app.get('/api/invoices/:id/delivery-candidates',async(req,res)=>{
+ const invoice=store.invoice(String(req.params.id));if(!invoice)return res.status(404).json({error:'Invoice draft not found.'});
+ try{res.json(await deliveryCandidates(store,invoice.property));}catch(error){res.status(503).json({error:error instanceof Error?error.message:'Could not search media delivery email.'});}
+});
+app.post('/api/invoices/:id/email-draft',async(req,res)=>{
+ const old=store.invoice(String(req.params.id));if(!old||store.deletedJobIds().has(old.jobId))return res.status(404).json({error:'Invoice draft not found.'});
+ if(config.preview)return res.status(403).json({error:'Gmail draft creation is disabled in the isolated preview.'});
+ const job=store.jobs().find(item=>item.id===old.jobId);if(!job)return res.status(404).json({error:'Job not found.'});
+ const raw=req.body?.draft;if(!raw||!Array.isArray(raw.lines)||raw.lines.length>25)return res.status(400).json({error:'Use between 1 and 25 invoice lines.'});
+ const input=normalizeInvoiceInput({...raw,status:'draft'}),errors=[...validateInvoiceDraft(input,job,[]),...validatePdfInput(input)];
+ if(errors.length)return res.status(400).json({error:[...new Set(errors)].join(' ')});
+ if(!store.getSetting('gmail-drafts-refresh'))return res.status(503).json({error:'Gmail drafts needs a separate explicit connection. Your read-only Gmail access has not been changed.'});
+ const fonts=configuredInvoiceFonts();if(!fonts)return res.status(503).json({error:'Install the private original invoice fonts before preparing an email.'});
+ try{
+  const delivery=req.body?.delivery;if(!delivery||typeof delivery.messageId!=='string'||typeof delivery.threadId!=='string')return res.status(400).json({error:'Choose the matching media-delivery thread before preparing an invoice reply.'});
+  const readToken=await gmailAccessToken(store);
+  const source=await gmailGet<{id?:string;threadId?:string;labelIds?:string[];payload?:{headers?:{name:string;value:string}[]}}>(`messages/${encodeURIComponent(delivery.messageId)}?format=metadata`,readToken);
+  const sourceHeader=(name:string)=>source?.payload?.headers?.find(header=>header.name.toLowerCase()===name)?.value||'';
+  if(!source||source.threadId!==delivery.threadId||!source.labelIds?.includes('SENT')||!sourceHeader('message-id')||!sourceHeader('subject'))return res.status(409).json({error:'The selected media-delivery message could not be verified. No draft was created.'});
+  const reply={threadId:source.threadId!,deliveryMessageId:delivery.messageId,subject:sourceHeader('subject'),messageId:sourceHeader('message-id'),references:sourceHeader('references')};
+  const template=loadInvoiceEmailTemplate(),pdf=await renderInvoicePdf(input,fonts),prepared=prepareInvoiceEmail({...old,...input},req.body?.email,template,pdf,config.businessEmail,reply);
+  const token=await gmailDraftAccessToken(store),result=await createInvoiceEmailDraft(store.db,old.id,prepared,token);
+  res.json({...result,subject:prepared.subject,filename:prepared.filename,gmailUrl:`https://mail.google.com/mail/?authuser=${encodeURIComponent(config.businessEmail)}#drafts`,notice:result.reused?'The existing Gmail draft is ready for review. Your Gmail edits were preserved; nothing was duplicated or sent.':'Your invoice email and PDF are ready in Gmail Drafts for review. Nothing was sent.'});
+ }catch(error){res.status(409).json({error:error instanceof Error?error.message:'Could not prepare the invoice email draft.'});}
+});
+// Pure preview: no save, issuance, number allocation, audit mutation or external calls.
+app.post('/api/invoices/:id/pdf',async(req,res)=>{
+ const old=store.invoice(String(req.params.id));if(!old||store.deletedJobIds().has(old.jobId))return res.status(404).json({error:'Invoice draft not found.'});
+ const job=store.jobs().find(item=>item.id===old.jobId);if(!job)return res.status(404).json({error:'Job not found.'});
+ const raw=req.body?.draft;if(!raw||!Array.isArray(raw.lines)||raw.lines.length>25)return res.status(400).json({error:'Use between 1 and 25 invoice lines.'});
+ const input=normalizeInvoiceInput({...raw,status:'draft'}),errors=[...validateInvoiceDraft(input,job,[]),...validatePdfInput(input)];
+ if(errors.length)return res.status(400).json({error:[...new Set(errors)].join(' ')});
+ const fonts=configuredInvoiceFonts();if(!fonts)return res.status(503).json({error:'The original GothamSSm Light, Medium and Bold fonts must be installed privately before this invoice template can be exported.'});
+ try{const pdf=await renderInvoicePdf(input,fonts);res.type('application/pdf').set('Content-Disposition',`attachment; filename="JFM-invoice.pdf"; filename*=UTF-8''${encodeURIComponent(invoicePdfFilename(input))}`).send(pdf);}catch{res.status(500).json({error:'Could not generate the PDF. Your invoice draft was not changed.'});}
+});
 app.get('/api/invoices/:id/reference',(req,res)=>{const invoice=store.invoice(String(req.params.id));if(!invoice||store.deletedJobIds().has(invoice.jobId))return res.status(404).json({error:'Invoice draft not found.'});const job=store.jobs().find(item=>item.id===invoice.jobId),sort=store.sorts().find(item=>item.jobId===invoice.jobId);res.json(referenceForClient(store,String(req.query.client||invoice.client),job?.start.slice(0,10)||'',sort?.category));});
 app.post('/api/invoices/:id/client-pricing',(req,res)=>{const invoice=store.invoice(String(req.params.id));if(!invoice||store.deletedJobIds().has(invoice.jobId))return res.status(404).json({error:'Invoice draft not found.'});const client=typeof req.body?.client==='string'?req.body.client:'';const profile=req.body?.profile;if(profile!==null&&profile!=='standard'&&profile!=='legacy')return res.status(400).json({error:'Choose Standard, Legacy, or clear the override.'});try{store.setClientPricingOverride(client,profile);const job=store.jobs().find(item=>item.id===invoice.jobId),sort=store.sorts().find(item=>item.jobId===invoice.jobId);res.json(referenceForClient(store,client,job?.start.slice(0,10)||'',sort?.category));}catch(error){res.status(409).json({error:error instanceof Error?error.message:'Could not save client pricing.'});}});
 app.get('/api/invoices/:id/suggestions',(req,res)=>{const invoice=store.invoice(String(req.params.id));if(!invoice||store.deletedJobIds().has(invoice.jobId))return res.status(404).json({error:'Invoice draft not found.'});const profile=String(req.query.profile||invoice.pricingProfile||'review');if(!['standard','legacy','review'].includes(profile))return res.status(400).json({error:'Invalid pricing profile.'});const sort=store.sorts().find(item=>item.jobId===invoice.jobId);const selected={...invoice,pricingProfile:profile as InvoiceDraft['pricingProfile']};res.json({rates:rateSuggestions(selected,sort,store.rates()),custom:customPricePrompts(selected,sort,store.guidance())});});

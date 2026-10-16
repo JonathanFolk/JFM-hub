@@ -17,7 +17,7 @@ export function signedIn(req:Request,store:Store){
 }
 export function authRoutes(app:Express,store:Store){
  app.get('/auth/start',(req,res)=>{
-  const kind=req.query.kind==='calendar'?'calendar':req.query.kind==='gmail'?'gmail':req.query.kind==='sheets'?'sheets':'login';
+  const kind=req.query.kind==='calendar'?'calendar':req.query.kind==='gmail'?'gmail':req.query.kind==='gmail-drafts'?'gmail-drafts':req.query.kind==='sheets'?'sheets':'login';
   if(kind!=='login'&&!signedIn(req,store))return res.status(401).send('Sign in first');
   if(!config.clientId||!config.clientSecret||!validEncryptionKey())return res.status(503).send('Google connection setup is pending. See Settings in the Hub.');
   const state=random(),nonce=random(),verifier=random(),binding=random();
@@ -25,7 +25,7 @@ export function authRoutes(app:Express,store:Store){
   store.db.prepare('INSERT INTO oauth VALUES(?,?,?)').run(hash(state),Date.now()+600000,JSON.stringify({kind,nonce,verifier,binding:hash(binding)}));
   res.cookie('jfm_oauth',binding,{...cookieOptions,maxAge:600000});
   const url=new URL('https://accounts.google.com/o/oauth2/v2/auth');
-  for(const [k,v] of Object.entries({client_id:config.clientId,redirect_uri:config.origin+'/auth/callback',response_type:'code',scope:kind==='calendar'?'openid email https://www.googleapis.com/auth/calendar.readonly':kind==='gmail'?'openid email https://www.googleapis.com/auth/gmail.readonly':kind==='sheets'?'openid email https://www.googleapis.com/auth/spreadsheets.readonly':'openid email',state,nonce,code_challenge:createHash('sha256').update(verifier).digest('base64url'),code_challenge_method:'S256',access_type:kind==='login'?'online':'offline',prompt:kind==='login'?'select_account':'consent select_account',login_hint:kind==='calendar'?config.calendarEmail:config.businessEmail}))url.searchParams.set(k,v);
+  for(const [k,v] of Object.entries({client_id:config.clientId,redirect_uri:config.origin+'/auth/callback',response_type:'code',scope:kind==='calendar'?'openid email https://www.googleapis.com/auth/calendar.readonly':kind==='gmail'?'openid email https://www.googleapis.com/auth/gmail.readonly':kind==='gmail-drafts'?'openid email https://www.googleapis.com/auth/gmail.compose':kind==='sheets'?'openid email https://www.googleapis.com/auth/spreadsheets.readonly':'openid email',state,nonce,code_challenge:createHash('sha256').update(verifier).digest('base64url'),code_challenge_method:'S256',access_type:kind==='login'?'online':'offline',prompt:kind==='login'?'select_account':'consent select_account',login_hint:kind==='calendar'?config.calendarEmail:config.businessEmail}))url.searchParams.set(k,v);
   res.redirect(url.toString());
  });
  app.get('/auth/callback',async(req,res)=>{
@@ -40,10 +40,10 @@ export function authRoutes(app:Express,store:Store){
    const email=attempt.kind==='calendar'?config.calendarEmail:config.businessEmail;
    if(payload.nonce!==attempt.nonce||payload.email_verified!==true||payload.email!==email||!payload.sub)throw new Error('Account not allowed');
    const subjectKey=attempt.kind+'-subject';const known=store.getSetting(subjectKey);if(known&&known!==payload.sub)throw new Error('Identity changed');
-   if(attempt.kind==='calendar'||attempt.kind==='gmail'||attempt.kind==='sheets'){
+   if(attempt.kind==='calendar'||attempt.kind==='gmail'||attempt.kind==='gmail-drafts'||attempt.kind==='sheets'){
     if(!tokens.refresh_token)throw new Error('Offline access was not granted');
-    const scope=attempt.kind==='calendar'?'https://www.googleapis.com/auth/calendar.readonly':attempt.kind==='gmail'?'https://www.googleapis.com/auth/gmail.readonly':'https://www.googleapis.com/auth/spreadsheets.readonly';
-    const scopes=String(tokens.scope||'').split(' ');if(!scopes.includes(scope))throw new Error('Read-only access not granted');
+    const scope=attempt.kind==='calendar'?'https://www.googleapis.com/auth/calendar.readonly':attempt.kind==='gmail'?'https://www.googleapis.com/auth/gmail.readonly':attempt.kind==='gmail-drafts'?'https://www.googleapis.com/auth/gmail.compose':'https://www.googleapis.com/auth/spreadsheets.readonly';
+    const scopes=String(tokens.scope||'').split(' ');if(!scopes.includes(scope))throw new Error('Required access not granted');
     store.setSetting(attempt.kind+'-refresh',seal(tokens.refresh_token));store.setSetting(attempt.kind+'-account',email);
    }else{const session=random();store.db.prepare('INSERT INTO sessions VALUES(?,?)').run(hash(session),Date.now()+12*3600000);res.cookie('jfm_session',session,{...cookieOptions,maxAge:12*3600000});}
    store.setSetting(subjectKey,String(payload.sub));store.audit('google-'+attempt.kind,'account');res.redirect('/');

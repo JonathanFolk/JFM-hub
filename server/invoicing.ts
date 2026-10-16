@@ -16,12 +16,13 @@ export function normalizeInvoiceInput(value:unknown):InvoiceDraftInput{
  const raw=(value&&typeof value==='object'?value:{}) as Record<string,unknown>;
  const lines:InvoiceLine[]=Array.isArray(raw.lines)?raw.lines.slice(0,25).map((item,index):InvoiceLine=>{
   const line=(item&&typeof item==='object'?item:{}) as Record<string,unknown>;
-  return {id:text(line.id,80)||`line-${index+1}`,description:text(line.description,160),quantity:Number(line.quantity),unitPriceCents:Number(line.unitPriceCents),pricingProfileOverride:line.pricingProfileOverride==='standard'||line.pricingProfileOverride==='legacy'?line.pricingProfileOverride:null,rateSource:typeof line.rateSource==='string'?line.rateSource.slice(0,300):undefined};
+  return {id:text(line.id,80)||`line-${index+1}`,description:text(line.description,160),...(line.appendProperty===false?{appendProperty:false}:{}),quantity:Number(line.quantity),unitPriceCents:Number(line.unitPriceCents),pricingProfileOverride:line.pricingProfileOverride==='standard'||line.pricingProfileOverride==='legacy'?line.pricingProfileOverride:null,rateSource:typeof line.rateSource==='string'?line.rateSource.slice(0,300):undefined};
  }):[];
  return {
   status:raw.status==='ready'?'ready':'draft',client:text(raw.client,120),property:text(raw.property,200),squareFeet:text(raw.squareFeet,50),pricingProfile:raw.pricingProfile==='standard'||raw.pricingProfile==='legacy'?raw.pricingProfile:'review',pricingProfileMode:raw.pricingProfileMode==='invoice'?'invoice':'automatic',
   currency:raw.currency==='USD'?'USD':'CAD',invoiceDate:isoDate(raw.invoiceDate),dueDate:isoDate(raw.dueDate),completionConfirmed:raw.completionConfirmed===true,
   taxTreatment:raw.taxTreatment==='taxable'?'taxable':raw.taxTreatment==='no-tax'?'no-tax':'review',taxRateBps:Number(raw.taxRateBps)||0,taxNote:text(raw.taxNote,500),
+  ...(raw.pdfDetails&&typeof raw.pdfDetails==='object'?{pdfDetails:Object.fromEntries(['reference','billTo','business','paymentNote','filenameClient'].map(key=>[key,text((raw.pdfDetails as Record<string,unknown>)[key],500)])) as NonNullable<InvoiceDraft['pdfDetails']>}:{}),
   lines,notes:text(raw.notes,2000)
  };
 }
@@ -45,6 +46,7 @@ export function validateInvoiceDraft(input:InvoiceDraftInput,job:Job,openReviews
  if(!Number.isInteger(input.taxRateBps)||input.taxRateBps<0||input.taxRateBps>10_000)errors.push('The tax rate must be between 0% and 100%.');
  if(input.taxTreatment!=='taxable'&&input.taxRateBps!==0)errors.push('Only taxable drafts can have a tax rate.');
  if(input.taxNote.length>500||input.notes.length>2000)errors.push('An invoice note is too long.');
+ if(input.pdfDetails&&(input.pdfDetails.reference.length>40||Object.values(input.pdfDetails).some(value=>value.length>500)))errors.push('PDF billing details are too long.');
  if(input.status==='ready'){
   if(input.lines.some(line=>!line.pricingProfileOverride&&input.pricingProfile==='review'))errors.push('Confirm Standard or Legacy pricing for every invoice line before marking the draft ready.');
   if(job.status!=='Booked')errors.push('Only a booked job can be made ready for invoicing.');

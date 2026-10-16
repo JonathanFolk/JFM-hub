@@ -1,3 +1,5 @@
+import {InvoicePdfExport} from './InvoicePdfExport';
+import {InvoiceReviewQueue} from './InvoiceReviewQueue';
 import {CompletedBooking} from './CompletedBooking';
 import React,{useEffect,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
@@ -34,6 +36,7 @@ function InvoiceEditor({invoice,rates,busy,editInvoice,editLine,onSave}:{invoice
   <label className="notes-field">Private invoice notes<textarea value={invoice.notes} maxLength={2000} onChange={event=>editInvoice({notes:event.target.value})}/></label>
   <dl className="invoice-totals"><div><dt>Subtotal</dt><dd>{money(amount.subtotal,invoice.currency)}</dd></div><div><dt>Tax</dt><dd>{money(amount.tax,invoice.currency)}</dd></div><div><dt>Total</dt><dd>{money(amount.total,invoice.currency)}</dd></div></dl>
   <label className="status-field">Draft state<select value={invoice.status} onChange={event=>editInvoice({status:event.target.value as InvoiceDraft['status']})}><option value="draft">Keep as draft</option><option value="ready">Ready for issuance review</option></select></label>
+  <InvoicePdfExport key={invoice.id} invoice={invoice} editInvoice={editInvoice}/>
   <p className="caption">Ready drafts still stay inside JFM Hub. This action cannot send an invoice, assign an invoice number or update a payment.</p><button className="primary wide" disabled={busy} onClick={onSave}>{busy?'Saving…':'Save invoice draft'}</button>
  </div>;
 }
@@ -114,11 +117,12 @@ function App(){
     </>}
     {view==='Invoices'&&<>
      <div className="page-heading"><div><p className="eyebrow">Phase 2 · private drafting</p><h1>Invoices, before they leave.</h1><p className="lead">Confirm the completed work, pricing and tax treatment. Drafts stay inside the Hub and do not change the master Sheet.</p></div><span className="stamp">{data.invoices.filter(invoice=>invoice.status==='ready').length} ready</span></div>
-     <div className="toolbar"><label className="search">Search invoice drafts<input type="search" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Client or property"/></label><span className="results">{invoices.length} drafts</span></div>
+     <InvoiceReviewQueue/>
+     <div className="toolbar"><label className="search">Search invoice drafts<input type="search" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Client or property"/></label><span className="results">{invoices.length} Hub drafts</span></div>
      <div className="bulk-toolbar"><label><input type="checkbox" aria-label="Select all visible invoices" checked={invoices.length>0&&invoices.every(invoice=>bulkInvoices.includes(invoice.id))} onChange={event=>setBulkInvoices(current=>event.target.checked?[...new Set([...current,...invoices.map(invoice=>invoice.id)])]:current.filter(id=>!invoices.some(invoice=>invoice.id===id)))} disabled={!invoices.length||busy}/>Select visible</label><span>{bulkInvoices.length} selected</span><button className="secondary" disabled={!bulkInvoices.length||busy} onClick={()=>void bulkComplete('invoices')}>Move to Complete</button><button className="secondary" disabled={!bulkInvoices.length||busy} onClick={()=>void bulkDelete('invoices')}>Move to Recently Deleted</button></div>
      <p className="caption bulk-help">Click an invoice row or its checkbox to select it; use View to open the draft. Complete checks every selected shoot against the live 2026 master Sheet. Deleting moves the shoot and its linked Hub records to Recently Deleted.</p>
      <section>{invoices.length?invoices.map(invoiceRow):<div className="empty"><h2>No invoice drafts yet.</h2><p>Open a booked job and choose Start invoice draft. Nothing will be sent.</p><button onClick={()=>nav('Jobs')}>Open jobs</button></div>}</section>
-     <div className="phase-boundary"><strong>Issuance is deliberately off.</strong><p>Ready means reviewed inside JFM Hub. Invoice numbering, master-Sheet writes, PDF delivery and payment changes are not connected yet.</p></div>
+     <div className="phase-boundary"><strong>Sending stays in Gmail.</strong><p>Hub review notes and draft states do not mark an invoice sent or paid. The master Sheet stays unchanged.</p></div>
     </>}
     {view==='Complete'&&<><div className="page-heading"><div><p className="eyebrow">Master Sheet tracking</p><h1>Complete.</h1><p className="lead">Invoice recorded in the master Sheet. Payment status remains separate; the Sheet is unchanged.</p></div><span className="stamp">{data.completions.length} complete</span></div><label className="search">Search completed jobs<input type="search" value={query} onChange={e=>setQuery(e.target.value)}/></label>{data.completions.filter(c=>`${c.row.client} ${c.row.notes} ${c.row.number} ${c.evidence?.project||''} ${c.evidence?.rows.map(r=>r.number).join(' ')||''}`.toLowerCase().includes(query.toLowerCase())).map(c=><CompletedBooking key={c.jobId} completion={c} job={data.jobs.find(j=>j.id===c.jobId)} busy={busy} onView={()=>select({job:data.jobs.find(j=>j.id===c.jobId)})} onReopen={()=>action(()=>api(`complete/${c.jobId}/reopen`,{}),'Job returned to the active Hub. Sheet unchanged.')}/>)}{!data.completions.length&&<p>No verified matches yet. Uncertain jobs stay in Review.</p>}</>}
     {view==='Rates'&&<RateCatalog rates={data.rates} busy={busy} onSave={rate=>action(()=>api('rates',rate),'Rate saved to the private catalog.')}/>}

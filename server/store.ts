@@ -1,3 +1,4 @@
+import {initializeInvoiceEmailDrafts} from './invoice-email.ts';
 import {DatabaseSync,backup} from 'node:sqlite';
 import {mkdirSync,chmodSync} from 'node:fs';
 import {dirname} from 'node:path';
@@ -53,6 +54,7 @@ export class Store {
    for(const old of this.sorts()){if(old.category==='Design'){this.db.prepare('UPDATE shoot_sort SET payload=? WHERE job_id=?').run(JSON.stringify({...old,category:'Commercial'}),old.jobId);const job=this.jobs().find(j=>j.id===old.jobId);if(job)this.review({id:'commercial-type-'+job.id,kind:'Commercial category',jobId:job.id,title:job.client,source:job.source,detail:'Choose a commercial subtype for this former Design booking. Existing draft prices are preserved.',status:'open',updatedAt:new Date().toISOString()});}}
    this.enrichBookings();this.setSetting('workflow-v3','1');this.db.exec('COMMIT');
   }catch(error){this.db.exec('ROLLBACK');throw error;}}
+  initializeInvoiceEmailDrafts(this.db);
   this.cleanupLegacyCancellations();
  }
  cleanupLegacyCancellations(){

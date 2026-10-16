@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
-import {mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
+import {copyFileSync,mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createServer} from 'node:net';
@@ -9,6 +9,7 @@ import {Store} from '../server/store.ts';
 test('HTTP serves the app, excludes secrets, and rejects cross-origin changes',async()=>{
  const probe=createServer();await new Promise<void>(r=>probe.listen(0,'127.0.0.1',r));const port=(probe.address() as any).port;await new Promise<void>(r=>probe.close(()=>r()));
  const origin=`http://127.0.0.1:${port}`,dir=mkdtempSync(join(tmpdir(),'jfm-http-'));const seed=new Store(join(dir,'hub.sqlite'));
+ const fontDir=join(dir,'test-fonts');mkdirSync(fontDir);for(const name of ['Light','Medium','Bold'])copyFileSync(`server/assets/fonts/LiberationSans-${name==='Light'?'Regular':'Bold'}.ttf`,join(fontDir,`GothamSSm-${name}.otf`));
  const staticDir=join(dir,'dist');mkdirSync(staticDir);writeFileSync(join(staticDir,'index.html'),'<!doctype html><title>JFM Hub test</title>');
  seed.setSync({id:'google-calendar',label:'Test',mode:'live',lastAttempt:null,lastSuccess:null,snapshotAt:null,error:null,count:0,syncToken:'must-not-leak'});
  seed.apply('test',[{id:'invoice-job',title:'PP Synthetic Client',start:'2026-09-20T10:00:00-07:00',end:'2026-09-20T11:00:00-07:00',location:'Synthetic property'}]);const invoiceJobId=seed.jobs()[0].id;
@@ -17,7 +18,7 @@ test('HTTP serves the app, excludes secrets, and rejects cross-origin changes',a
  seed.review({id:'sort-me',kind:'Check booking',title:'Synthetic shoot',detail:'Sort this shoot',jobId:invoiceJobId,source:'test',status:'open',updatedAt:new Date().toISOString()});
  seed.review({id:'optional-note',kind:'Check booking',title:'Optional note',detail:'Test only',jobId:null,source:'test',status:'open',updatedAt:new Date().toISOString()});
  const now=new Date().toISOString();seed.saveReconciliationSuggestion({id:'mail-test',kind:'payment',source:'gmail',sourceId:'gmail-1',threadId:'thread-1',subject:'Interac transfer received',from:'Test sender',date:now,excerpt:'Synthetic payment',invoiceNumbers:['26001'],amountCents:32760,currency:'CAD',candidateRows:[{row:10,number:'26001',client:'ALP Studio',totalCents:32760,paid:false,notes:''}],match:'invoice-number',status:'open',resolution:'',createdAt:now,updatedAt:now});seed.close();
- const child=spawn(process.execPath,['--import','tsx','server/index.ts'],{env:{...process.env,APP_MODE:'local',PORT:String(port),APP_ORIGIN:origin,DATA_DIR:dir,BACKUP_DIR:join(dir,'backups'),STATIC_DIR:staticDir},stdio:['ignore','pipe','pipe']});
+ const child=spawn(process.execPath,['--import','tsx','server/index.ts'],{env:{...process.env,APP_MODE:'local',PORT:String(port),APP_ORIGIN:origin,DATA_DIR:dir,BACKUP_DIR:join(dir,'backups'),STATIC_DIR:staticDir,INVOICE_FONT_DIR:fontDir},stdio:['ignore','pipe','pipe']});
  try{
  await new Promise<void>((resolve,reject)=>{let stderr='';const timeout=setTimeout(()=>reject(new Error('Server startup timed out: '+stderr)),10000);child.stderr.on('data',data=>stderr+=String(data));child.stdout.on('data',()=>{clearTimeout(timeout);resolve();});child.on('exit',code=>{clearTimeout(timeout);reject(new Error(`Server exited (${code}): ${stderr}`));});});
  assert.equal((await fetch(origin)).status,200);
@@ -42,7 +43,19 @@ test('HTTP serves the app, excludes secrets, and rejects cross-origin changes',a
  const clearOverride=await fetch(origin+`/api/invoices/${invoice.id}/client-pricing`,{method:'POST',headers:mutationHeaders,body:JSON.stringify({client:invoice.client,profile:null})});assert.equal(clearOverride.status,200);
  const invalidResponse=await fetch(origin+`/api/invoices/${invoice.id}`,{method:'POST',headers:mutationHeaders,body:JSON.stringify({expectedUpdatedAt:invoice.updatedAt,draft:{...invoice,status:'ready'}})});assert.equal(invalidResponse.status,400);
  const savedResponse=await fetch(origin+`/api/invoices/${invoice.id}`,{method:'POST',headers:mutationHeaders,body:JSON.stringify({expectedUpdatedAt:invoice.updatedAt,draft:{...invoice,status:'ready',pricingProfile:'standard',squareFeet:'2,000 approximate',completionConfirmed:true,taxTreatment:'taxable',taxRateBps:500,taxNote:'BC GST confirmed',lines:invoice.lines.map((line:any)=>({...line,unitPriceCents:75000}))}})});assert.equal(savedResponse.status,200);
+ const beforePdf=await (await fetch(origin+'/api/dashboard')).text();
+ const pdfDraft={...invoice,client:'Synthetic PDF Client',property:'123 Test Street',pdfDetails:{business:'Synthetic Media',billTo:'Test Company',reference:'TEST-ONLY',paymentNote:''},lines:invoice.lines.map((line:any)=>({...line,unitPriceCents:35000}))};
+ const emailCapability=await (await fetch(origin+`/api/invoices/${invoice.id}/email-draft`)).json();assert.equal(emailCapability.connected,false);assert.equal(emailCapability.fontsConfigured,true);
+ assert.equal((await fetch(origin+`/api/invoices/${invoice.id}/email-draft`,{method:'POST',headers:mutationHeaders,body:JSON.stringify({draft:pdfDraft,email:{to:['client@example.test'],cc:[],greetingName:'Test'}})})).status,503);
+ assert.equal((await fetch(origin+`/api/invoices/${invoice.id}/email-draft`,{method:'POST',headers:{...mutationHeaders,Origin:'https://other.example'},body:JSON.stringify({draft:pdfDraft})})).status,403);
+ const pdfRequest=()=>fetch(origin+`/api/invoices/${invoice.id}/pdf`,{method:'POST',headers:mutationHeaders,body:JSON.stringify({draft:pdfDraft})});
+ const pdfResponse=await pdfRequest();assert.equal(pdfResponse.status,200);assert.match(pdfResponse.headers.get('content-type')||'',/application\/pdf/);assert.match(pdfResponse.headers.get('cache-control')||'',/no-store/);assert.equal(Buffer.from(await pdfResponse.arrayBuffer()).subarray(0,5).toString(),'%PDF-');assert.equal((await pdfRequest()).status,200);
+ const afterPdf=await (await fetch(origin+'/api/dashboard')).json();assert.deepEqual(afterPdf.invoices,JSON.parse(beforePdf).invoices);
+ assert.equal((await fetch(origin+`/api/invoices/${invoice.id}/pdf`,{method:'POST',headers:{...mutationHeaders,Origin:'https://other.example'},body:JSON.stringify({draft:pdfDraft})})).status,403);
+ assert.equal((await fetch(origin+`/api/invoices/${invoice.id}/pdf`,{method:'POST',headers:mutationHeaders,body:JSON.stringify({draft:{...pdfDraft,lines:Array(26).fill(pdfDraft.lines[0])}})})).status,400);
+ assert.equal((await fetch(origin+'/api/invoices/missing/pdf',{method:'POST',headers:mutationHeaders,body:JSON.stringify({draft:pdfDraft})})).status,404);
  const deleteResponse=await fetch(origin+`/api/jobs/${invoiceJobId}/delete`,{method:'POST',headers:mutationHeaders,body:'{}'});assert.equal(deleteResponse.status,200);
+ assert.equal((await pdfRequest()).status,404);
  const deletedDashboard=await (await fetch(origin+'/api/dashboard')).json();assert.equal(deletedDashboard.jobs.length,0);assert.equal(deletedDashboard.invoices.length,0);assert.equal(deletedDashboard.deletedItems.length,1);
  const restoreResponse=await fetch(origin+`/api/deleted/${deletedDashboard.deletedItems[0].reviewId}/restore`,{method:'POST',headers:mutationHeaders,body:'{}'});assert.equal(restoreResponse.status,200);
  const restoredDashboard=await (await fetch(origin+'/api/dashboard')).json();assert.equal(restoredDashboard.jobs.length,1);assert.equal(restoredDashboard.invoices.length,1);

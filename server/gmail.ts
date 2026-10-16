@@ -50,3 +50,13 @@ export async function commercialEmailPrices(store:Store,client:string):Promise<E
  }));
  return messages.flatMap(message=>message?extractEmailPrices(message):[]).slice(0,20);
 }
+
+// Separate opt-in connection. Never upgrade or reuse the existing read-only token.
+export async function gmailDraftAccessToken(store:Store){
+ const secret=store.getSetting('gmail-drafts-refresh');if(!secret)throw new Error('Connect Gmail drafts explicitly before preparing an invoice email. The read-only Gmail connection cannot create drafts.');
+ const response=await fetch('https://oauth2.googleapis.com/token',{method:'POST',body:new URLSearchParams({client_id:config.clientId,client_secret:config.clientSecret,refresh_token:unseal(secret),grant_type:'refresh_token'}),signal:AbortSignal.timeout(15000)});
+ if(!response.ok)throw new Error('Gmail draft authorization expired. Reconnect Gmail drafts.');
+ const body=await response.json() as {access_token?:string;scope?:string};
+ if(!body.access_token||body.scope&&!body.scope.split(' ').includes('https://www.googleapis.com/auth/gmail.compose'))throw new Error('The Gmail draft connection is missing its approved compose permission.');
+ return body.access_token;
+}

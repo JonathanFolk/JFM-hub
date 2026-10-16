@@ -38,12 +38,13 @@ export type ReconciliationSuggestion={
  match:'invoice-number'|'amount-mismatch'|'amount-and-client'|'amount-only'|'ambiguous'|'unmatched';
  status:'open'|'confirmed'|'dismissed';resolution:string;createdAt:string;updatedAt:string;
 };
-export type InvoiceLine = {id:string;description:string;quantity:number;unitPriceCents:number;pricingProfileOverride?:PricingProfile|null;rateSource?:string};
+export type InvoiceLine = {id:string;description:string;quantity:number;unitPriceCents:number;appendProperty?:boolean;pricingProfileOverride?:PricingProfile|null;rateSource?:string};
 export type InvoiceDraft = {
  id:string;jobId:string;status:'draft'|'ready';client:string;property:string;squareFeet:string;
  pricingProfile:'review'|PricingProfile;pricingProfileMode:'automatic'|'invoice';
  currency:'CAD'|'USD';invoiceDate:string;dueDate:string;completionConfirmed:boolean;
  taxTreatment:'review'|'no-tax'|'taxable';taxRateBps:number;taxNote:string;
+ pdfDetails?:{filenameClient?:string;reference:string;billTo:string;business:string;paymentNote:string};
  lines:InvoiceLine[];notes:string;createdAt:string;updatedAt:string;
 };
 export type ReferenceCustomer={customerId:string;displayName:string;legacyStatus:string;billingRoute:string;pdfInvoices2026:number;match:'exact'|'ambiguous'|'none';profileHint:'standard'|'legacy'|'review'};
