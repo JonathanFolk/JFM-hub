@@ -1,6 +1,7 @@
 import {createInvoiceEmailDraft,invoicePdfFilename,loadInvoiceEmailTemplate,prepareInvoiceEmail} from './invoice-email.ts';
 import {gmailDraftAccessToken} from './gmail.ts';
-import {deliveryCandidates,gmailGet,reviewPdf,reviewQueue} from './invoice-review.ts';
+import {deliveryCandidates,gmailGet,reviewItem,reviewPdf,reviewQueue} from './invoice-review.ts';
+import {prepareInvoiceSend,sendPreparedInvoice} from './invoice-send.ts';
 import {gmailAccessToken} from './gmail.ts';
 import {renderInvoicePdf,validatePdfInput,configuredInvoiceFonts} from './invoice-pdf.ts';
 import express from 'express';
@@ -64,14 +65,37 @@ app.get('/api/invoice-review',async(_req,res)=>{
  try{
   const queue=await reviewQueue(store),notes=store.db.prepare('SELECT number,version,note,updated_at FROM invoice_review_notes').all() as {number:string;version:string;note:string;updated_at:string}[];
   const hubInvoices=store.invoices(),sheetRows=store.getSetting('sheets-refresh')?await readInvoiceSheet(store).catch(()=>[]):[];
-  res.json({connected:!!store.getSetting('gmail-refresh'),incomplete:queue.incomplete,items:queue.items.map(item=>{
+  res.json({connected:!!store.getSetting('gmail-refresh'),sendConnected:!!store.getSetting('gmail-drafts-refresh'),incomplete:queue.incomplete,items:queue.items.map(item=>{
    const hubMatches=hubInvoices.filter(invoice=>invoice.pdfDetails?.reference===item.number),sheetMatches=sheetRows.filter(row=>row.number===item.number);
    const hub=hubMatches.length===1?hubMatches[0]:undefined,sheet=sheetMatches.length===1?sheetMatches[0]:undefined;
    const subtotal=hub?.lines.reduce((sum,line)=>sum+line.quantity*line.unitPriceCents,0);
    const unique=!!item.number&&queue.items.filter(other=>other.number===item.number&&other.state!=='missing'&&other.state!=='possibly-sent').length===1;
-   return {...item,client:sheet?.client||hub?.client||'',property:hub?.property||'',totalCents:sheet?.totalCents??(subtotal===undefined?null:subtotal+(hub?.taxTreatment==='taxable'?Math.round(subtotal*hub.taxRateBps/10000):0)),currency:hub?.currency||'CAD',reviewNote:unique?notes.find(note=>note.number===item.number)||null:null};
+   const send=store.db.prepare('SELECT status FROM invoice_review_sends WHERE draft_id=?').get(item.draftId) as {status:string}|undefined;
+   return {...item,client:sheet?.client||hub?.client||'',property:hub?.property||'',totalCents:sheet?.totalCents??(subtotal===undefined?null:subtotal+(hub?.taxTreatment==='taxable'?Math.round(subtotal*hub.taxRateBps/10000):0)),currency:hub?.currency||'CAD',reviewNote:unique?notes.find(note=>note.number===item.number)||null:null,sendStatus:send?.status||null};
   })});
  }catch(error){res.status(503).json({error:error instanceof Error?error.message:'Could not read Gmail drafts.'});}
+});
+app.post('/api/invoice-review/:number/prepare-send',async(req,res)=>{
+ try{
+  const draftId=req.body?.draftId,version=req.body?.version;
+  if(typeof draftId!=='string'||typeof version!=='string'||!/^[a-f0-9]{64}$/.test(version))return res.status(400).json({error:'Refresh and select a current invoice draft.'});
+  if(!store.getSetting('gmail-drafts-refresh'))return res.status(503).json({error:'Connect Gmail send access explicitly before sending an invoice.'});
+  const queue=await reviewQueue(store),item=queue.items.find(row=>row.number===req.params.number&&row.draftId===draftId&&row.version===version);
+  if(!item||queue.incomplete)return res.status(409).json({error:'This draft changed or Gmail discovery is incomplete. Refresh and review again.'});
+  res.json(prepareInvoiceSend(store,item));
+ }catch(error){res.status(409).json({error:error instanceof Error?error.message:'Could not prepare this send.'});}
+});
+app.post('/api/invoice-review/:number/send',async(req,res)=>{
+ try{
+  const draftId=req.body?.draftId,version=req.body?.version,confirmationId=req.body?.confirmationId;
+  if(typeof draftId!=='string'||typeof version!=='string'||typeof confirmationId!=='string')return res.status(400).json({error:'Refresh and confirm this invoice again.'});
+  const result=await sendPreparedInvoice(store,{number:req.params.number,draftId,version,confirmationId},async()=>{
+   const queue=await reviewQueue(store);if(queue.incomplete)return undefined;
+   const item=queue.items.find(row=>row.number===req.params.number&&row.draftId===draftId);
+   return item?.state==='ready'?reviewItem({number:item.number,draftId:item.draftId,threadId:item.threadId},await gmailAccessToken(store)):item;
+  },()=>gmailDraftAccessToken(store));
+  res.json(result);
+ }catch(error){const message=error instanceof Error?error.message:'Could not confirm the send.';res.status(message.includes('outcome is uncertain')?502:409).json({error:message});}
 });
 app.post('/api/invoice-review/:number/request-changes',async(req,res)=>{
  try{
